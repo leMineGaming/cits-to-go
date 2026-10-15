@@ -13,6 +13,7 @@ import org.opentrafficmap.citstogo.intersection.ItsFrameExtractor
 import org.opentrafficmap.citstogo.packet.TestFrames.hex
 import org.opentrafficmap.citstogo.packet.TestFrames.shbFrame
 import org.opentrafficmap.citstogo.packet.Tshark
+import org.opentrafficmap.citstogo.srem.SremProfile
 
 class CamDecoderTest {
     private val identity = CamIdentity(
@@ -89,19 +90,26 @@ class CamDecoderTest {
 
     @Test
     fun encodedTrailersRoundTrip() {
-        val sizes = listOf(
-            VehicleDimensions(165, 26, VehicleDimensions.Trailer.KNOWN_LENGTH),
-            VehicleDimensions(120, 26, VehicleDimensions.Trailer.UNKNOWN_LENGTH),
-            VehicleDimensions(45, 18, VehicleDimensions.Trailer.NONE),
-            VehicleDimensions(null, 25, VehicleDimensions.Trailer.UNKNOWN_LENGTH),
-            VehicleDimensions.UNAVAILABLE,
-        )
+        val unknownLength = VehicleDimensions.UNAVAILABLE.copy(trailer = VehicleDimensions.Trailer.UNKNOWN_LENGTH)
+        // The size of each profile as MainActivity sends it to the service.
+        val profiles = listOf(
+            SremProfile.HEAVY_TRUCK to VehicleDimensions(165, 26, VehicleDimensions.Trailer.KNOWN_LENGTH),
+            SremProfile.PUBLIC_TRANSPORT_BUS to VehicleDimensions(120, 26, VehicleDimensions.Trailer.UNKNOWN_LENGTH),
+            SremProfile.PASSENGER_CAR to VehicleDimensions(45, 18, VehicleDimensions.Trailer.NONE),
+            SremProfile.LIGHT_TRUCK to VehicleDimensions(null, 25, VehicleDimensions.Trailer.UNKNOWN_LENGTH),
+            SremProfile.PASSENGER_CAR to VehicleDimensions(null, 18, VehicleDimensions.Trailer.KNOWN_LENGTH),
+            SremProfile.HEAVY_TRUCK to VehicleDimensions.UNAVAILABLE,
+            SremProfile.BICYCLE to unknownLength,
+            SremProfile.BICYCLE to VehicleDimensions.UNAVAILABLE,
+            SremProfile.PEDESTRIAN to unknownLength,
+        ).map { (profile, stored) -> profile to VehicleDimensions.of(profile, mapOf(profile to stored)) }
 
-        val cams = assertMatchesWireshark(sizes.map { camFrame(StationType.HEAVY_TRUCK, position, it) })
+        val frames = profiles.map { (profile, size) -> camFrame(profile.stationType, position, size) }
+        val cams = assertMatchesWireshark(frames)
 
-        assertEquals(listOf(true, true, false, null, null), cams.map { it?.trailer })
+        assertEquals(listOf(true, true, false, true, true, null, true, null, null), cams.map { it?.trailer })
         // The own vehicle shows a trailer exactly when its CAMs report one.
-        assertEquals(sizes.map { it.reportsTrailer }, cams.map { it?.trailer == true })
+        assertEquals(profiles.map { (_, size) -> size.reportsTrailer }, cams.map { it?.trailer == true })
     }
 
     @Test

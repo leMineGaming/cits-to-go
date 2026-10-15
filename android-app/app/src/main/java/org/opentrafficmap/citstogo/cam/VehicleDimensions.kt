@@ -30,11 +30,21 @@ data class VehicleDimensions(
     /** VehicleLengthValue: 1..1022, 1023 for unavailable. */
     val lengthValue: Int get() = lengthDm?.coerceIn(1, MAX_LENGTH_DM) ?: LENGTH_UNAVAILABLE
 
-    /** VehicleLengthConfidenceIndication: the trailer, or unavailable (4) without a length. */
-    val lengthConfidenceIndication: Int get() = if (lengthDm == null) LENGTH_CONFIDENCE_UNAVAILABLE else trailer.code
+    /**
+     * VehicleLengthConfidenceIndication: the trailer, which says whether one is present and whether the length
+     * includes it (CDD A.91, EN 302 637-2 V1.4.1 B.35). The VehicleLength DF carries it next to VehicleLengthValue
+     * (A.131), so without a length a trailer still goes out, next to the unavailable length 1023 (A.92). Its length is
+     * then unknown, also when it is set as included in the length: trailerPresentWithUnknownLength (2). With
+     * neither a length nor a trailer, it stays unavailable (4), as CAMs without a size have sent so far.
+     */
+    val lengthConfidenceIndication: Int get() = when {
+        lengthDm != null -> trailer.code
+        trailer != Trailer.NONE -> Trailer.UNKNOWN_LENGTH.code
+        else -> LENGTH_CONFIDENCE_UNAVAILABLE
+    }
 
-    /** Whether CAMs with this size report a trailer. Without a length they leave the trailer unavailable. */
-    val reportsTrailer: Boolean get() = lengthDm != null && trailer != Trailer.NONE
+    /** Whether CAMs with this size report a trailer, which they do for every trailer. */
+    val reportsTrailer: Boolean get() = trailer != Trailer.NONE
 
     /** VehicleWidth: 1..61, 62 for unavailable. */
     val widthValue: Int get() = widthDm?.coerceIn(1, MAX_WIDTH_DM) ?: WIDTH_UNAVAILABLE
@@ -54,6 +64,22 @@ data class VehicleDimensions(
          */
         fun applies(profile: SremProfile): Boolean =
             profile != SremProfile.PEDESTRIAN && profile != SremProfile.BICYCLE
+
+        /** Whether [profile] has a trailer setting: every profile with a size, and the cyclist without one. */
+        fun hasTrailerSetting(profile: SremProfile): Boolean = applies(profile) || profile == SremProfile.BICYCLE
+
+        /**
+         * The size that CAMs of [profile] carry: its size in [stored], else its [defaults]. A cyclist carries only its
+         * trailer, a pedestrian nothing.
+         */
+        fun of(profile: SremProfile, stored: Map<SremProfile, VehicleDimensions>): VehicleDimensions {
+            val dimensions = stored[profile] ?: defaults(profile)
+            return when {
+                applies(profile) -> dimensions
+                hasTrailerSetting(profile) -> UNAVAILABLE.copy(trailer = dimensions.trailer)
+                else -> UNAVAILABLE
+            }
+        }
 
         /** The defaults proposed in issue #11; widths of 2.55 m round up to 2.6 m, the next 0.1 m step. */
         fun defaults(profile: SremProfile): VehicleDimensions = when (profile) {

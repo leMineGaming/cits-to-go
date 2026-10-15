@@ -323,6 +323,11 @@ fun CitsApp(
         AppPage.entries.filter { it.visible(txApproved, debugMenuEnabled) }
     }
     
+    // The profiles whose CAMs report a trailer; their icons outside the map show it, the map draws the own trailer itself.
+    val trailerProfiles = remember(vehicleDimensions) {
+        SremProfile.entries.filterTo(mutableSetOf()) { VehicleDimensions.of(it, vehicleDimensions).reportsTrailer }
+    }
+
     LaunchedEffect(txApproved, debugMenuEnabled) {
         if (selectedPage !in visiblePages) selectedPage = AppPage.Home
     }
@@ -459,6 +464,7 @@ fun CitsApp(
                             onStopReplay = onStopReplay,
                             onOpenDiscoveredStations = { selectedPage = AppPage.DiscoveredStations },
                             vehicleProfile = sremProfile.takeIf { txApproved },
+                            vehicleProfileTrailer = sremProfile in trailerProfiles,
                             onOpenVehicleProfile = { selectedPage = AppPage.CamBroadcast },
                         )
                         AppPage.DiscoveredStations -> DiscoveredStationsPage(
@@ -487,6 +493,7 @@ fun CitsApp(
                             onRandomizationIntervalChange = onCamRandomizationIntervalChange,
                             onConfigure = onConfigureCam,
                             vehicleProfile = sremProfile,
+                            trailerProfiles = trailerProfiles,
                             onVehicleProfileChange = onSelectVehicleProfile,
                         )
                         AppPage.IntersectionView -> IntersectionViewPage(
@@ -503,8 +510,7 @@ fun CitsApp(
                         AppPage.Map -> {
                             val mapModifier = Modifier.weight(1f)
                             // The size that the CAMs carry, as MainActivity sends it to the service.
-                            val ownDimensions =
-                                vehicleDimensions[sremProfile] ?: VehicleDimensions.defaults(sremProfile)
+                            val ownDimensions = VehicleDimensions.of(sremProfile, vehicleDimensions)
                             mapPageState.SaveableStateProvider(AppPage.Map.name) {
                                 MapPage(
                                     snapshot = liveMapSnapshot,
@@ -521,8 +527,7 @@ fun CitsApp(
                                     },
                                     onFocusStationCleared = { mapFocusStation = null },
                                     ownVehicleProfile = sremProfile.takeIf { status.camEnabled },
-                                    ownTrailer = status.camEnabled && VehicleDimensions.applies(sremProfile) &&
-                                        ownDimensions.reportsTrailer,
+                                    ownTrailer = status.camEnabled && ownDimensions.reportsTrailer,
                                     currentPosition = currentPosition,
                                     darkTheme = resolveDarkTheme(themeMode, isSystemInDarkTheme()),
                                     receiving = status.running,

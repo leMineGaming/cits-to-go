@@ -59,11 +59,12 @@ fun HomePage(
     onStopReplay: () -> Unit,
     onOpenDiscoveredStations: () -> Unit,
     vehicleProfile: SremProfile?,
+    vehicleProfileTrailer: Boolean,
     onOpenVehicleProfile: () -> Unit,
 ) {
     val packetsPerSecond = rememberPacketRate(status.packets, status.running)
     HomeStatusBanner(status)
-    vehicleProfile?.let { HomeVehicleProfile(it, status.camEnabled, onOpenVehicleProfile) }
+    vehicleProfile?.let { HomeVehicleProfile(it, vehicleProfileTrailer, status.camEnabled, onOpenVehicleProfile) }
     Text("Connection", fontSize = 20.sp, fontWeight = FontWeight.Medium)
     ConnectionTabs(
         selectedMode = connectionMode,
@@ -271,9 +272,12 @@ private fun HomeMetrics(
     }
 }
 
-/** The vehicle profile that CAMs and SREMs go out with; the card opens the CAM Broadcast page to change it. */
+/**
+ * The vehicle profile that CAMs and SREMs go out with, its icon with the [trailer] when it has one; the card opens the
+ * CAM Broadcast page to change it.
+ */
 @Composable
-private fun HomeVehicleProfile(profile: SremProfile, camEnabled: Boolean, onOpen: () -> Unit) {
+private fun HomeVehicleProfile(profile: SremProfile, trailer: Boolean, camEnabled: Boolean, onOpen: () -> Unit) {
     val context = LocalContext.current
     Card(
         modifier = Modifier
@@ -284,7 +288,7 @@ private fun HomeVehicleProfile(profile: SremProfile, camEnabled: Boolean, onOpen
         colors = CardDefaults.cardColors(containerColor = Color(ContextCompat.getColor(context, R.color.card))),
     ) {
         Row(Modifier.padding(horizontal = 11.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            VehicleProfileIcon(profile, size = 40.dp)
+            VehicleProfileIcon(profile, trailer, size = 40.dp)
             Column(
                 modifier = Modifier
                     .weight(1f)

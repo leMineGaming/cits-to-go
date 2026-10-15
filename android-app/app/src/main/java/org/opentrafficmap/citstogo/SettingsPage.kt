@@ -111,7 +111,7 @@ fun SettingsPage(
     var draftMaxQueueAgeSeconds by rememberSaveable(maxQueueAgeSeconds) { mutableStateOf(maxQueueAgeSeconds) }
     var draftSremProfile by rememberSaveable(sremProfile) { mutableStateOf(sremProfile) }
     // The size fields show the stored size of the profile the carousel shows; another profile starts from its own.
-    val storedDimensions = vehicleDimensions[draftSremProfile] ?: VehicleDimensions.defaults(draftSremProfile)
+    val storedDimensions = VehicleDimensions.of(draftSremProfile, vehicleDimensions)
     var draftLength by rememberSaveable(draftSremProfile, storedDimensions) {
         mutableStateOf(VehicleDimensions.formatMeters(storedDimensions.lengthDm))
     }
@@ -205,14 +205,19 @@ fun SettingsPage(
                     draftMapStationTimeoutSeconds,
                     draftMapHistoryDays,
                 )
-                if (VehicleDimensions.applies(draftSremProfile)) {
-                    onSaveVehicleDimensions(
+                when {
+                    VehicleDimensions.applies(draftSremProfile) -> onSaveVehicleDimensions(
                         draftSremProfile,
                         VehicleDimensions(
                             lengthDm = VehicleDimensions.parseMeters(draftLength, VehicleDimensions.MAX_LENGTH_DM),
                             widthDm = VehicleDimensions.parseMeters(draftWidth, VehicleDimensions.MAX_WIDTH_DM),
                             trailer = draftTrailer,
                         ),
+                    )
+                    // A cyclist has the trailer setting without a length or width.
+                    VehicleDimensions.hasTrailerSetting(draftSremProfile) -> onSaveVehicleDimensions(
+                        draftSremProfile,
+                        VehicleDimensions.UNAVAILABLE.copy(trailer = draftTrailer),
                     )
                 }
             },
@@ -424,7 +429,8 @@ private fun VehicleTypeCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                VehicleProfileIcon(sremProfile, size = 40.dp)
+                // Follows the trailer choice at once, before Save.
+                VehicleProfileIcon(sremProfile, trailer = trailer != VehicleDimensions.Trailer.NONE, size = 40.dp)
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -525,8 +531,8 @@ private fun VehicleTypeCard(
                 }
             }
 
-            if (VehicleDimensions.applies(sremProfile)) {
-                VehicleDimensionsFields(
+            when {
+                VehicleDimensions.applies(sremProfile) -> VehicleDimensionsFields(
                     length = length,
                     onLengthChange = onLengthChange,
                     width = width,
@@ -534,8 +540,22 @@ private fun VehicleTypeCard(
                     trailer = trailer,
                     onTrailerChange = onTrailerChange,
                 )
-            } else {
-                Text(
+                // A trailer included in the length needs a length, which a cyclist does not send.
+                VehicleDimensions.hasTrailerSetting(sremProfile) -> Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.vehicle_dimensions_trailer_only),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(ContextCompat.getColor(context, R.color.on_surface_variant)),
+                    )
+                    VehicleTrailerOptions(
+                        trailer = trailer,
+                        onTrailerChange = onTrailerChange,
+                        options = listOf(VehicleDimensions.Trailer.NONE, VehicleDimensions.Trailer.UNKNOWN_LENGTH),
+                    )
+                }
+                else -> Text(
                     stringResource(R.string.vehicle_dimensions_not_applicable),
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(ContextCompat.getColor(context, R.color.on_surface_variant)),
@@ -582,29 +602,42 @@ private fun VehicleDimensionsFields(
             style = MaterialTheme.typography.bodySmall,
             color = Color(ContextCompat.getColor(context, R.color.on_surface_variant)),
         )
-        listOf(
-            VehicleDimensions.Trailer.NONE to R.string.vehicle_trailer_none,
-            VehicleDimensions.Trailer.KNOWN_LENGTH to R.string.vehicle_trailer_known_length,
-            VehicleDimensions.Trailer.UNKNOWN_LENGTH to R.string.vehicle_trailer_unknown_length,
-        ).forEach { (option, label) ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .selectable(
-                        selected = trailer == option,
-                        role = Role.RadioButton,
-                        onClick = { onTrailerChange(option) },
-                    ),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RadioButton(selected = trailer == option, onClick = null)
-                Text(
-                    stringResource(label),
-                    modifier = Modifier.padding(start = 8.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(ContextCompat.getColor(context, R.color.on_surface)),
-                )
-            }
+        VehicleTrailerOptions(trailer = trailer, onTrailerChange = onTrailerChange)
+    }
+}
+
+/** The trailer settings of a vehicle profile as radio buttons, those in [options]. */
+@Composable
+private fun VehicleTrailerOptions(
+    trailer: VehicleDimensions.Trailer,
+    onTrailerChange: (VehicleDimensions.Trailer) -> Unit,
+    options: List<VehicleDimensions.Trailer> = VehicleDimensions.Trailer.entries,
+) {
+    val context = LocalContext.current
+    options.forEach { option ->
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .selectable(
+                    selected = trailer == option,
+                    role = Role.RadioButton,
+                    onClick = { onTrailerChange(option) },
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RadioButton(selected = trailer == option, onClick = null)
+            Text(
+                stringResource(
+                    when (option) {
+                        VehicleDimensions.Trailer.NONE -> R.string.vehicle_trailer_none
+                        VehicleDimensions.Trailer.KNOWN_LENGTH -> R.string.vehicle_trailer_known_length
+                        VehicleDimensions.Trailer.UNKNOWN_LENGTH -> R.string.vehicle_trailer_unknown_length
+                    },
+                ),
+                modifier = Modifier.padding(start = 8.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(ContextCompat.getColor(context, R.color.on_surface)),
+            )
         }
     }
 }

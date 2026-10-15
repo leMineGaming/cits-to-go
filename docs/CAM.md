@@ -47,8 +47,17 @@ CAM page):
   unavailable values.
 - Vehicle length, width and trailer come from the vehicle profile
   (**Settings → Vehicle Type**, stored per profile; defaults from issue #11,
-  e.g. 4.5 × 1.8 m for a passenger car). An empty field, and every
-  pedestrian or cyclist profile, sends the unavailable values.
+  e.g. 4.5 × 1.8 m for a passenger car). An empty field sends the
+  unavailable value, and pedestrian and cyclist profiles send no length or
+  width. The cyclist profile has only the trailer setting, without
+  "Trailer, included in the length"; the pedestrian profile has none.
+- The trailer goes into `vehicleLengthConfidenceIndication`: no trailer (0),
+  trailer included in the length (1) or trailer of unknown length (2). Without
+  a length, a trailer is still sent, as 2 next to the unavailable length 1023,
+  since TS 102 894-2 V1.3.1 (A.91, A.92, A.131) defines the two values apart
+  and the length of the trailer is then unknown, also when it is set as
+  included in the length; this is how a cyclist reports its trailer. Without
+  a length and without a trailer, it sends unavailable (4).
 - A position older than five seconds is not advertised; CAM broadcast waits
   until a fresh phone location is available.
 - RSU uses `RSUContainerHighFrequency`; all other selectable station types use

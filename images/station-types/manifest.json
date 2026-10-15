@@ -16,7 +16,8 @@
       "value": 2,
       "name": "cyclist",
       "de": "Radfahrer",
-      "file": "02-cyclist.svg"
+      "file": "02-cyclist.svg",
+      "trailerFile": "02-cyclist-trailer.svg"
     },
     {
       "value": 3,
@@ -34,7 +35,8 @@
       "value": 5,
       "name": "passengerCar",
       "de": "PKW",
-      "file": "05-passengerCar.svg"
+      "file": "05-passengerCar.svg",
+      "trailerFile": "05-passengerCar-trailer.svg"
     },
     {
       "value": 6,
@@ -46,13 +48,15 @@
       "value": 7,
       "name": "lightTruck",
       "de": "Lieferwagen",
-      "file": "07-lightTruck.svg"
+      "file": "07-lightTruck.svg",
+      "trailerFile": "07-lightTruck-trailer.svg"
     },
     {
       "value": 8,
       "name": "heavyTruck",
       "de": "LKW",
-      "file": "08-heavyTruck.svg"
+      "file": "08-heavyTruck.svg",
+      "trailerFile": "08-heavyTruck-trailer.svg"
     },
     {
       "value": 9,
@@ -88,7 +92,8 @@
       "value": 14,
       "name": "agricultural",
       "de": "Traktor",
-      "file": "14-agricultural.svg"
+      "file": "14-agricultural.svg",
+      "trailerFile": "14-agricultural-trailer.svg"
     },
     {
       "value": 15,

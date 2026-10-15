@@ -49,7 +49,8 @@
     <string name="vehicle_width_label">Width</string>
     <string name="vehicle_size_suffix">m</string>
     <string name="vehicle_dimensions_supporting">Sent in every CAM of this profile. Leave a field empty to send it as unavailable.</string>
-    <string name="vehicle_dimensions_not_applicable">Pedestrians and cyclists send no vehicle size in a CAM.</string>
+    <string name="vehicle_dimensions_not_applicable">Pedestrians send no vehicle size in a CAM.</string>
+    <string name="vehicle_dimensions_trailer_only">Cyclists send no length or width in a CAM, only a trailer when they pull one.</string>
     <string name="vehicle_trailer_none">No trailer</string>
     <string name="vehicle_trailer_known_length">Trailer, included in the length</string>
     <string name="vehicle_trailer_unknown_length">Trailer of unknown length</string>
@@ -122,6 +123,7 @@
     <string name="cd_queue_length_storage">Queue length storage</string>
     <string name="cd_queue_age_schedule">Queue age schedule</string>
     <string name="cd_vehicle_profile">Vehicle profile</string>
+    <string name="cd_vehicle_profile_trailer">With trailer</string>
     <string name="cd_bluetooth_qr">Bluetooth QR code</string>
     <string name="cd_debug_info">Debug information</string>
     <string name="cd_revoke_approval">Revoke approval</string>

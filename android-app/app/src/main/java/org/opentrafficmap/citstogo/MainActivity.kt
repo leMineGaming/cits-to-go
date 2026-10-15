@@ -1198,19 +1198,15 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             putExtra(CitsBridgeService.EXTRA_CAM_INTERVAL_MS, interval)
             putExtra(CitsBridgeService.EXTRA_CAM_RANDOMIZE_MAC, camRandomizationEnabled)
             putExtra(CitsBridgeService.EXTRA_CAM_RANDOMIZATION_INTERVAL_MS, randomizationIntervalMs)
-            val dimensions = dimensionsOf(sremProfile)
+            // The stored or default size; a cyclist sends only its trailer, a pedestrian nothing.
+            val dimensions = VehicleDimensions.of(sremProfile, vehicleDimensions)
             putExtra(CitsBridgeService.EXTRA_CAM_VEHICLE_LENGTH_DM, dimensions.lengthDm ?: 0)
             putExtra(CitsBridgeService.EXTRA_CAM_VEHICLE_WIDTH_DM, dimensions.widthDm ?: 0)
             putExtra(CitsBridgeService.EXTRA_CAM_TRAILER, dimensions.trailer.code)
         }
     }
 
-    /** The size CAMs of [profile] carry: its stored or default dimensions, none for pedestrians and cyclists. */
-    private fun dimensionsOf(profile: SremProfile): VehicleDimensions = when {
-        !VehicleDimensions.applies(profile) -> VehicleDimensions.UNAVAILABLE
-        else -> vehicleDimensions[profile] ?: VehicleDimensions.defaults(profile)
-    }
-
+    /** The stored size of [profile], else its defaults. Every save writes all three keys, also for a cyclist. */
     private fun loadVehicleDimensions(prefs: SharedPreferences, profile: SremProfile): VehicleDimensions {
         val code = profile.preferenceCode
         if (!prefs.contains(PREF_VEHICLE_LENGTH_DM_PREFIX + code)) return VehicleDimensions.defaults(profile)

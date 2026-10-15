@@ -40,35 +40,51 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import org.opentrafficmap.citstogo.srem.SremProfile
 
-/** The icon of the station type of a vehicle profile, from the station type icons in images/station-types. */
+/**
+ * The icon of the station type of a vehicle profile, from the station type icons in images/station-types. With
+ * [trailer], the bicycle, the passenger car and the trucks show the variant that pulls a trailer; the other profiles
+ * have none and keep their icon.
+ */
 @DrawableRes
-fun SremProfile.iconRes(): Int = when (this) {
+fun SremProfile.iconRes(trailer: Boolean = false): Int = when (this) {
     SremProfile.PEDESTRIAN -> R.drawable.ic_station_type_pedestrian
-    SremProfile.BICYCLE -> R.drawable.ic_station_type_cyclist
+    SremProfile.BICYCLE ->
+        if (trailer) R.drawable.ic_station_type_cyclist_trailer else R.drawable.ic_station_type_cyclist
     SremProfile.MOPED -> R.drawable.ic_station_type_moped
     SremProfile.MOTORCYCLE -> R.drawable.ic_station_type_motorcycle
-    SremProfile.PASSENGER_CAR -> R.drawable.ic_station_type_passenger_car
+    SremProfile.PASSENGER_CAR ->
+        if (trailer) R.drawable.ic_station_type_passenger_car_trailer else R.drawable.ic_station_type_passenger_car
     SremProfile.PUBLIC_TRANSPORT_BUS -> R.drawable.ic_station_type_bus
-    SremProfile.LIGHT_TRUCK -> R.drawable.ic_station_type_light_truck
-    SremProfile.HEAVY_TRUCK -> R.drawable.ic_station_type_heavy_truck
+    SremProfile.LIGHT_TRUCK ->
+        if (trailer) R.drawable.ic_station_type_light_truck_trailer else R.drawable.ic_station_type_light_truck
+    SremProfile.HEAVY_TRUCK ->
+        if (trailer) R.drawable.ic_station_type_heavy_truck_trailer else R.drawable.ic_station_type_heavy_truck
     SremProfile.SPECIAL_VEHICLE -> R.drawable.ic_station_type_special_vehicles
     SremProfile.TRAM -> R.drawable.ic_station_type_tram
 }
 
-/** The icon of [profile]: its pictogram on its own dark rounded square, the same in light and dark mode. */
+/**
+ * The icon of [profile]: its pictogram on its own dark rounded square, the same in light and dark mode. With
+ * [trailer], the profile pulls a trailer: the icon shows it where there is a variant, and a screen reader says so
+ * next to the profile name.
+ */
 @Composable
-fun VehicleProfileIcon(profile: SremProfile, size: Dp, modifier: Modifier = Modifier) {
+fun VehicleProfileIcon(profile: SremProfile, trailer: Boolean, size: Dp, modifier: Modifier = Modifier) {
     Image(
-        painter = painterResource(profile.iconRes()),
-        contentDescription = null,
+        painter = painterResource(profile.iconRes(trailer)),
+        contentDescription = if (trailer) stringResource(R.string.cd_vehicle_profile_trailer) else null,
         modifier = modifier.size(size),
     )
 }
 
-/** The current vehicle profile as a field that opens a list of all profiles with their icons. */
+/**
+ * The current vehicle profile as a field that opens a list of all profiles with their icons. The icons of the
+ * [trailerProfiles] show their trailer.
+ */
 @Composable
 fun VehicleProfileSelector(
     profile: SremProfile,
+    trailerProfiles: Set<SremProfile>,
     onProfileChange: (SremProfile) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -87,7 +103,7 @@ fun VehicleProfileSelector(
                 modifier = Modifier.padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                VehicleProfileIcon(profile, size = 48.dp)
+                VehicleProfileIcon(profile, trailer = profile in trailerProfiles, size = 48.dp)
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -122,7 +138,7 @@ fun VehicleProfileSelector(
                 DropdownMenuItem(
                     text = { Text(option.displayName) },
                     modifier = Modifier.semantics { selected = option == profile },
-                    leadingIcon = { VehicleProfileIcon(option, size = 32.dp) },
+                    leadingIcon = { VehicleProfileIcon(option, trailer = option in trailerProfiles, size = 32.dp) },
                     trailingIcon = if (option == profile) {
                         { Icon(imageVector = Icons.Rounded.Check, contentDescription = null) }
                     } else {

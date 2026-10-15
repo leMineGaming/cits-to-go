@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- stationType 7 lightTruck with trailer, converted from images/station-types. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="68"
+    android:viewportHeight="68">
+    <group
+        android:translateX="10"
+        android:translateY="10">
+        <path
+            android:pathData="M5,-10H43A15,15 0 0 1 58,5V43A15,15 0 0 1 43,58H5A15,15 0 0 1 -10,43V5A15,15 0 0 1 5,-10z"
+            android:fillColor="#1A2540" />
+        <group
+            android:translateX="24"
+            android:translateY="24"
+            android:scaleX="1.15"
+            android:scaleY="1.15">
+            <group
+                android:translateX="-24"
+                android:translateY="-28">
+                <path
+                    android:pathData="M2.5,19H18.5A1.5,1.5 0 0 1 20,20.5V31.5A1.5,1.5 0 0 1 18.5,33H2.5A1.5,1.5 0 0 1 1,31.5V20.5A1.5,1.5 0 0 1 2.5,19z"
+                    android:strokeColor="#2DD4BF"
+                    android:strokeWidth="2.6"
+                    android:strokeLineCap="round"
+                    android:strokeLineJoin="round" />
+                <path
+                    android:pathData="M20 30H23.4"
+                    android:strokeColor="#2DD4BF"
+                    android:strokeWidth="2.6"
+                    android:strokeLineCap="round"
+                    android:strokeLineJoin="round" />
+                <path
+                    android:pathData="M4,33A3,3 0 1 0 10,33A3,3 0 1 0 4,33z"
+                    android:fillColor="#1A2540"
+                    android:strokeColor="#2DD4BF"
+                    android:strokeWidth="2.6"
+                    android:strokeLineCap="round"
+                    android:strokeLineJoin="round" />
+                <path
+                    android:pathData="M11,33A3,3 0 1 0 17,33A3,3 0 1 0 11,33z"
+                    android:fillColor="#1A2540"
+                    android:strokeColor="#2DD4BF"
+                    android:strokeWidth="2.6"
+                    android:strokeLineCap="round"
+                    android:strokeLineJoin="round" />
+                <group
+                    android:translateX="20.34"
+                    android:translateY="11.82"
+                    android:scaleX="0.62"
+                    android:scaleY="0.62">
+                    <path
+                        android:pathData="M6.5,11H27.5A1.5,1.5 0 0 1 29,12.5V31.5A1.5,1.5 0 0 1 27.5,33H6.5A1.5,1.5 0 0 1 5,31.5V12.5A1.5,1.5 0 0 1 6.5,11z"
+                        android:strokeColor="#2DD4BF"
+                        android:strokeWidth="4.19"
+                        android:strokeLineCap="round"
+                        android:strokeLineJoin="round" />
+                    <path
+                        android:pathData="M29 17H37L43 25V33H29M29 33H5"
+                        android:strokeColor="#2DD4BF"
+                        android:strokeWidth="4.19"
+                        android:strokeLineCap="round"
+                        android:strokeLineJoin="round" />
+                    <path
+                        android:pathData="M10,35A4,4 0 1 0 18,35A4,4 0 1 0 10,35z"
+                        android:fillColor="#1A2540"
+                        android:strokeColor="#2DD4BF"
+                        android:strokeWidth="4.19"
+                        android:strokeLineCap="round"
+                        android:strokeLineJoin="round" />
+                    <path
+                        android:pathData="M32,35A4,4 0 1 0 40,35A4,4 0 1 0 32,35z"
+                        android:fillColor="#1A2540"
+                        android:strokeColor="#2DD4BF"
+                        android:strokeWidth="4.19"
+                        android:strokeLineCap="round"
+                        android:strokeLineJoin="round" />
+                </group>
+            </group>
+        </group>
+    </group>
+</vector>

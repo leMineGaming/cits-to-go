@@ -110,12 +110,14 @@ DENM events have no timeout of their own: they show until they expire or are ter
   the card reads "Updated n s ago" instead of "Detected n s ago", because they set a new detection time with every
   update.
 - While CAMs are broadcast, the **own position** shows the icon of the vehicle profile instead of the blue dot, at
-  about the size of a station marker. Like the station icons it stays upright, so it has no heading arrow; a
-  position that has gone stale still shows as the grey dot. When the CAMs report a trailer, that is when the vehicle
-  profile has a trailer and a length (**Settings → Vehicle Type**), a trailer in the colours of the icon follows
-  behind it along the direction of travel. A standing phone has no heading, so the trailer keeps the last direction
-  of travel, for example at a red light, and shows only once the phone has moved since the map was opened; it
-  disappears with a stale position and when the broadcast stops.
+  about the size of a station marker. Like the station icons it stays upright, so it has no heading arrow; a position
+  that has gone stale still shows as the grey dot. When the CAMs report a trailer, that is when the vehicle profile has
+  one (**Settings → Vehicle Type**, also on a bicycle), a trailer in the colours of the icon follows behind it along
+  the direction of travel. The icon itself
+  stays the plain one, without the trailer that the profile icons in Settings, on Home and on the CAM Broadcast page
+  show. A standing phone has no heading, so the trailer keeps the last direction of travel, for example at a red light,
+  and shows only once the phone has moved since the map was opened; it disappears with a stale position and when the
+  broadcast stops.
 - **Follow** (on by default) keeps the own position in the centre. Moving the map turns it off, also before the
   first position fix. The button appears with the own position, turns follow on again and zooms in from an overview.
   Before the first position fix the map shows Austria.
@@ -191,10 +193,11 @@ Then open **Home → Replay PCAP**, choose the file and switch to **Map**. Check
   shows its card; a days limit in the settings hides older ones; turning the button off removes them and closes
   their card; the button keeps its state after a restart.
 
-The own vehicle needs a real drive with a CAM broadcast. With a trailer and a length in the vehicle profile, the own
-icon pulls a trailer once it moves, which turns with the direction of travel and moves with the icon without jumping
-ahead of it. When standing still it keeps the last direction; it disappears when the broadcast stops, with a stale
-position, and after switching to a profile without a trailer.
+The own vehicle needs a real drive with a CAM broadcast. With a trailer in the vehicle profile, also on a bicycle or
+without a length, the own icon pulls a trailer once it moves, which turns with the
+direction of travel and moves with the icon without jumping ahead of it. When standing still it keeps the last
+direction; it disappears when the broadcast stops, with a stale position, and after switching to a profile without a
+trailer.
 
 ## Updating MapLibre
 

@@ -48,13 +48,18 @@ fun CamBroadcastPage(
     onRandomizationIntervalChange: (String) -> Unit,
     onConfigure: (Boolean) -> Unit,
     vehicleProfile: SremProfile,
+    trailerProfiles: Set<SremProfile>,
     onVehicleProfileChange: (SremProfile) -> Unit,
 ) {
     Column(
         Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        VehicleProfileSelector(profile = vehicleProfile, onProfileChange = onVehicleProfileChange)
+        VehicleProfileSelector(
+            profile = vehicleProfile,
+            trailerProfiles = trailerProfiles,
+            onProfileChange = onVehicleProfileChange,
+        )
         CamPanel(
             status = status,
             intervalMs = intervalMs,

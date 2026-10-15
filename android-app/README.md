@@ -85,7 +85,11 @@ To broadcast CAM:
    Broadcast page and in Settings a change applies at once, also during a
    broadcast (with address randomization on, it starts a new random identity),
    and Home shows the active profile. Length, width and trailer of each
-   profile are set under **Settings → Vehicle Type** and go into every CAM.
+   profile are set under **Settings → Vehicle Type** and go into every CAM;
+   the bicycle has only the trailer, the pedestrian none of them. With a
+   trailer, the icon of the bicycle, the passenger car and the trucks shows
+   one in Settings, on Home and on the CAM Broadcast page; the map keeps the
+   plain icon and draws a trailer behind it while the CAMs report one.
 3. Start a capture on **Home**. Then set a 100–1000 ms maximum interval on the
    **CAM Broadcast** page, tap **Start CAM broadcast** and grant location
    permission.
