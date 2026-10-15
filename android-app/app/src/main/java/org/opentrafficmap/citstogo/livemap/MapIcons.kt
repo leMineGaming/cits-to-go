@@ -82,11 +82,16 @@ object MapIcons {
         StationIconGroup.Unknown -> 0xFFDB2777
     }.toInt()
 
-    private class Painter(private val density: Float, private val densityDpi: Int) {
+    /**
+     * Draws the icons with [dp] pixels per dp. It is not called `density`: inside the drawing blocks, whose receiver is
+     * a [Canvas], that name would be [Canvas.getDensity], the screen dpi, and every size would come out about 160 times
+     * too large.
+     */
+    private class Painter(private val dp: Float, private val densityDpi: Int) {
         private val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeJoin = Paint.Join.ROUND
-            strokeWidth = 3f * density
+            strokeWidth = 3f * dp
             color = OUTLINE
         }
         private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
@@ -119,7 +124,7 @@ object MapIcons {
                 if (trailer) stationTrailer(width / 2f, centerY, color)
                 // Nothing under the circle, so that a translucent stale circle does not show the base of the pointer.
                 val clear = Paint(Paint.ANTI_ALIAS_FLAG).apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR) }
-                drawCircle(width / 2f, centerY, STATION_SIZE_DP / 2f * density, clear)
+                drawCircle(width / 2f, centerY, STATION_SIZE_DP / 2f * dp, clear)
             }
         }
 
@@ -127,14 +132,14 @@ object MapIcons {
         private fun Canvas.stationTrailer(centerX: Float, centerY: Float, color: Int) {
             // In dp from the centre, behind the circle of 13 dp radius.
             fun rect(left: Float, top: Float, right: Float, bottom: Float) = RectF(
-                centerX + left * density,
-                centerY + top * density,
-                centerX + right * density,
-                centerY + bottom * density,
+                centerX + left * dp,
+                centerY + top * dp,
+                centerX + right * dp,
+                centerY + bottom * dp,
             )
             val drawbar = rect(-1.25f, 10f, 1.25f, 19f)
             val box = rect(-7f, 18.5f, 7f, 28f)
-            val corner = 2.5f * density
+            val corner = 2.5f * dp
             drawRect(drawbar, outline)
             drawRoundRect(box, corner, corner, outline)
             fill.color = color
@@ -151,7 +156,7 @@ object MapIcons {
             val centerX = width / 2f
             val centerY = height / 2f
             // The pictogram stroke of the icons: 3.2 of 68 viewport units.
-            val stroke = 3.2f / 68f * OWN_ICON_SIZE_DP * density
+            val stroke = 3.2f / 68f * OWN_ICON_SIZE_DP * dp
             val ink = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.STROKE
                 strokeCap = Paint.Cap.ROUND
@@ -159,15 +164,15 @@ object MapIcons {
                 color = OWN_ICON_INK
             }
             // From inside the icon, which covers it, to the box.
-            val iconEdge = OWN_ICON_SIZE_DP / 2f * density
-            drawLine(centerX, centerY + iconEdge - 4f * density, centerX, centerY + iconEdge + 9f * density, ink)
+            val iconEdge = OWN_ICON_SIZE_DP / 2f * dp
+            drawLine(centerX, centerY + iconEdge - 4f * dp, centerX, centerY + iconEdge + 9f * dp, ink)
             val box = RectF(
-                centerX - 12f * density + stroke / 2f,
-                centerY + iconEdge + 8f * density + stroke / 2f,
-                centerX + 12f * density - stroke / 2f,
-                centerY + iconEdge + 26f * density - stroke / 2f,
+                centerX - 12f * dp + stroke / 2f,
+                centerY + iconEdge + 8f * dp + stroke / 2f,
+                centerX + 12f * dp - stroke / 2f,
+                centerY + iconEdge + 26f * dp - stroke / 2f,
             )
-            val corner = 4f * density
+            val corner = 4f * dp
             fill.color = OWN_ICON_BACKGROUND
             drawRoundRect(box, corner, corner, fill)
             drawRoundRect(box, corner, corner, ink)
@@ -307,7 +312,7 @@ object MapIcons {
 
         /** A warning triangle with a pictogram; emergencies have a blue border, roadworks a yellow face. */
         fun sign(group: DenmIconGroup): Bitmap = draw(SIGN_SIZE_DP) { size ->
-            val rounded = CornerPathEffect(2.5f * density)
+            val rounded = CornerPathEffect(2.5f * dp)
             val triangle = polygon(size, 0.5f, 0.1f, 0.95f, 0.88f, 0.05f, 0.88f)
             outline.pathEffect = rounded
             fill.pathEffect = rounded
@@ -366,8 +371,8 @@ object MapIcons {
             draw(sizeDp, sizeDp) { size, _ -> this.block(size) }
 
         private fun draw(widthDp: Float, heightDp: Float, block: Canvas.(width: Float, height: Float) -> Unit): Bitmap {
-            val width = (widthDp * density).roundToInt()
-            val height = (heightDp * density).roundToInt()
+            val width = (widthDp * dp).roundToInt()
+            val height = (heightDp * dp).roundToInt()
             val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             // MapLibre takes the pixel ratio of an image from its density.
             bitmap.density = densityDpi
