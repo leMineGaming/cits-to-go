@@ -196,15 +196,8 @@ fun SettingsPage(
 
         Button(
             onClick = {
-                onSave(
-                    draftMqttUri,
-                    draftNodeId,
-                    draftMaxQueueLength,
-                    draftMaxQueueAgeSeconds,
-                    draftSremProfile,
-                    draftMapStationTimeoutSeconds,
-                    draftMapHistoryDays,
-                )
+                // The size first, so that a running CAM broadcast switches to a new profile once, with this size,
+                // and does not first send the size stored for that profile before.
                 when {
                     VehicleDimensions.applies(draftSremProfile) -> onSaveVehicleDimensions(
                         draftSremProfile,
@@ -220,6 +213,15 @@ fun SettingsPage(
                         VehicleDimensions.UNAVAILABLE.copy(trailer = draftTrailer),
                     )
                 }
+                onSave(
+                    draftMqttUri,
+                    draftNodeId,
+                    draftMaxQueueLength,
+                    draftMaxQueueAgeSeconds,
+                    draftSremProfile,
+                    draftMapStationTimeoutSeconds,
+                    draftMapHistoryDays,
+                )
             },
             modifier = Modifier
                 .fillMaxWidth()
