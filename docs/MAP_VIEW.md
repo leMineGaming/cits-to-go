@@ -96,12 +96,13 @@ DENM events have no timeout of their own: they show until they expire or are ter
 
 - **Stations** are circles coloured by station type, with a white pictogram: car, truck or bus, tram, pedestrian for
   cyclists and other vulnerable road users, warning light for special vehicles, mast for road side units, question
-  mark for unknown types. A pointer on the edge of the circle shows the heading of the last CAM; without a heading
-  there is none. The pictogram stays upright, unlike an arrow that could be taken for the own position. Stale
+  mark for unknown types. A pointer on the edge of the circle shows the last heading that the CAMs reported, so a
+  vehicle standing still, which may send none, keeps pointing the way it drove; a station that has not sent a heading
+  yet has none. The card shows the heading of the latest CAM. The pictogram stays upright, unlike an arrow that could be taken for the own position. Stale
   stations turn grey and translucent.
 - **Trailers**: a vehicle whose CAM reports a trailer, with known or unknown length (VehicleLengthConfidenceIndication
   1 or 2), has a small trailer on a drawbar behind its circle, opposite the pointer. Like the pointer it needs a
-  heading. A CAM that leaves the trailer unknown or unavailable (3 or 4) shows none.
+  heading, also one from an earlier CAM. A CAM that leaves the trailer unknown or unavailable (3 or 4) shows none.
 - **DENM events** are warning signs at the event position, with icons for traffic jams (causes 1 and 27), accidents
   (2), roadworks (3), stationary vehicles (91–94) and emergencies (15 and 95), and a general hazard sign for all other
   causes. Road operators report the start of the hazard in driving direction as the event position.
@@ -177,7 +178,8 @@ adb push excerpt.pcap /sdcard/Download/
 
 Then open **Home → Replay PCAP**, choose the file and switch to **Map**. Check:
 
-- stations appear with the pictogram of their type and a pointer along their heading (none without one), which stays
+- stations appear with the pictogram of their type and a pointer along their heading (none before the first one, the
+  last one while they stand), which stays
   right when the map is rotated or tilted; they turn grey after 3 s without a CAM and disappear after the station
   timeout,
 - a station whose CAM reports a trailer has one behind its circle, opposite the pointer, also on a rotated or tilted

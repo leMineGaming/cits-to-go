@@ -55,7 +55,7 @@ object LiveMapFeatures {
             val properties = JsonObject().apply {
                 addProperty(STATION_ID, station.stationId.toString())
                 addProperty(ICON, station.icon)
-                station.headingDeg?.let { addProperty(HEADING, it) }
+                station.directionDeg?.let { addProperty(HEADING, it) }
                 addProperty(TRAILER, station.trailer)
                 addProperty(STALE, station.stale)
             }

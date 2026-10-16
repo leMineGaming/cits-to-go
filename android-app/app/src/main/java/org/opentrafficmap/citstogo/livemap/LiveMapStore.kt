@@ -18,6 +18,11 @@ data class LiveMapStation(
     val latitude: Int,
     val longitude: Int,
     val heading: Int?,
+    /**
+     * The heading of the latest CAM that had one. A vehicle standing still may send none, but it still faces the way
+     * it last drove, so its pointer and trailer keep that direction.
+     */
+    val lastHeading: Int?,
     val speedCms: Int?,
     /** Whether the CAM reports a trailer; false also when it leaves the trailer unknown. */
     val trailer: Boolean,
@@ -82,7 +87,7 @@ class LiveMapStore {
         if (stored != null && !stored.isOlderThan(cam, receivedAtMs)) return
         stations.remove(cam.stationId)
         if (stations.size >= MAX_STATIONS) stations.remove(stations.keys.first())
-        stations[cam.stationId] = StationEntry(cam, receivedAtMs)
+        stations[cam.stationId] = StationEntry(cam, receivedAtMs, lastHeading = cam.heading ?: stored?.lastHeading)
     }
 
     /** Applies the receiving rules of EN 302 637-3 V1.3.1 §8.4.2, which TS 103 831 keeps. */
@@ -145,7 +150,7 @@ class LiveMapStore {
         )
     }
 
-    private class StationEntry(val cam: ReceivedCam, val receivedAtMs: Long) {
+    private class StationEntry(val cam: ReceivedCam, val receivedAtMs: Long, val lastHeading: Int?) {
         /**
          * Whether [newer] follows this CAM. The generationDeltaTime wraps every 65.536 s, so it orders CAMs only
          * within half that range; after a longer gap any CAM is newer.
@@ -163,6 +168,7 @@ class LiveMapStore {
             latitude = cam.latitude,
             longitude = cam.longitude,
             heading = cam.heading,
+            lastHeading = lastHeading,
             speedCms = cam.speedCms,
             trailer = cam.trailer == true,
             receivedAtMs = receivedAtMs,

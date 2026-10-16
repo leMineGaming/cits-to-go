@@ -14,6 +14,7 @@ class LiveMapModelTest {
         latitude = 482_024_036,
         longitude = -163_691_773,
         heading = 1_355,
+        lastHeading = 1_355,
         speedCms = 1_389,
         trailer = false,
         receivedAtMs = nowMs - 1_000,
@@ -57,7 +58,7 @@ class LiveMapModelTest {
     @Test
     fun roadSideUnitsStayAtLeastThirtySeconds() {
         // What counts is the road side unit container of the CAM, not the station type.
-        val roadSideUnit = car.copy(roadSideUnit = true, heading = null, speedCms = null)
+        val roadSideUnit = car.copy(roadSideUnit = true, heading = null, lastHeading = null, speedCms = null)
         val roadSideUnitStationType = car.copy(stationType = 15)
 
         assertEquals(1, stationsAtAge(30_000, 10_000, roadSideUnit).size)
@@ -87,6 +88,7 @@ class LiveMapModelTest {
                 latitude = 48.2024036,
                 longitude = -16.3691773,
                 headingDeg = 135.5,
+                directionDeg = 135.5,
                 speedMps = 13.89,
                 trailer = false,
                 icon = "station-car",
@@ -105,14 +107,26 @@ class LiveMapModelTest {
 
     @Test
     fun stationWithoutHeadingIsADot() {
-        val dot = car.copy(stationType = 42, heading = null, speedCms = null)
+        val dot = car.copy(stationType = 42, heading = null, lastHeading = null, speedCms = null)
 
         val station = stationsAtAge(1_000, station = dot).single()
 
         assertEquals(null, station.headingDeg)
+        assertEquals(null, station.directionDeg)
         assertEquals(null, station.speedMps)
         assertEquals("station-unknown", station.icon)
         assertEquals("Unknown (42)", station.typeLabel)
+    }
+
+    @Test
+    fun standingStationKeepsItsDirection() {
+        val standing = car.copy(heading = null, speedCms = 0, trailer = true)
+
+        val station = stationsAtAge(1_000, station = standing).single()
+
+        assertEquals(null, station.headingDeg)
+        assertEquals(135.5, station.directionDeg!!, 0.0)
+        assertTrue(station.trailer)
     }
 
     @Test

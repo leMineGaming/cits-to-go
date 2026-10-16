@@ -81,12 +81,33 @@ class LiveMapStoreTest {
 
         assertEquals(
             listOf(
-                LiveMapStation(0x8000_0001L, 5, false, 482_025_000, 163_691_773, null, null, true, nowMs + 1_000),
-                LiveMapStation(7, 15, true, 482_024_036, 163_691_773, 1_355, 1_389, false, nowMs + 1_100),
-                LiveMapStation(8, 5, false, 482_024_036, 163_691_773, null, null, false, nowMs + 1_200),
+                LiveMapStation(0x8000_0001L, 5, false, 482_025_000, 163_691_773, null, 1_355, null, true, nowMs + 1_000),
+                LiveMapStation(7, 15, true, 482_024_036, 163_691_773, 1_355, 1_355, 1_389, false, nowMs + 1_100),
+                LiveMapStation(8, 5, false, 482_024_036, 163_691_773, null, null, null, false, nowMs + 1_200),
             ),
             store.snapshot(nowMs + 2_000).stations,
         )
+    }
+
+    @Test
+    fun aStationWithoutAHeadingKeepsItsLastOne() {
+        val store = LiveMapStore()
+        val standing = car.copy(generationDeltaTime = 41_000, heading = null, speedCms = 0, trailer = true)
+        val neverMoved = car.copy(stationId = 2, heading = null, speedCms = 0)
+        fun headings(ms: Long) = store.snapshot(ms).stations.map { Triple(it.stationId, it.heading, it.lastHeading) }
+
+        store.accept(car.copy(trailer = true), nowMs)
+        store.accept(standing, nowMs + 1_000)
+        store.accept(neverMoved, nowMs + 1_000)
+        assertEquals(listOf(Triple(0x8000_0001L, null, 1_355), Triple(2L, null, null)), headings(nowMs + 1_000))
+        assertEquals(true, store.snapshot(nowMs + 1_000).stations.first().trailer)
+
+        // A late older CAM changes nothing, more CAMs without a heading keep it, and a new heading replaces it.
+        store.accept(car.copy(generationDeltaTime = 39_000, heading = 900), nowMs + 1_500)
+        store.accept(standing.copy(generationDeltaTime = 42_000), nowMs + 2_000)
+        assertEquals(Triple(0x8000_0001L, null, 1_355), headings(nowMs + 2_000).last())
+        store.accept(car.copy(generationDeltaTime = 43_000, heading = 2_700), nowMs + 3_000)
+        assertEquals(Triple(0x8000_0001L, 2_700, 2_700), headings(nowMs + 3_000).last())
     }
 
     @Test

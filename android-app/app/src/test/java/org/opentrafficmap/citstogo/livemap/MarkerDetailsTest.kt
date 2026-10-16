@@ -14,6 +14,7 @@ class MarkerDetailsTest {
         latitude = 48.2024036,
         longitude = 16.3691773,
         headingDeg = 359.6,
+        directionDeg = 359.6,
         speedMps = 13.89,
         trailer = false,
         icon = "station-car",
@@ -56,6 +57,7 @@ class MarkerDetailsTest {
 
     @Test
     fun stationWithoutHeadingOrSpeed() {
+        // The card shows the heading of the latest CAM, not the direction the map keeps for a standing vehicle.
         val rows = MarkerDetailsFormat.station(car.copy(headingDeg = null, speedMps = null)).rows.toMap()
 
         assertEquals("Unavailable", rows["Speed"])

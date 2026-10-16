@@ -19,6 +19,7 @@ class LiveMapFeaturesTest {
         latitude = 48.2024036,
         longitude = 16.3691773,
         headingDeg = 135.5,
+        directionDeg = 135.5,
         speedMps = 13.89,
         trailer = true,
         icon = "station-car",
@@ -71,7 +72,7 @@ class LiveMapFeaturesTest {
 
     @Test
     fun stationWithoutHeadingGetsNoPointer() {
-        val noHeading = car.copy(headingDeg = null, trailer = false, stale = false)
+        val noHeading = car.copy(headingDeg = null, directionDeg = null, trailer = false, stale = false)
 
         val feature = LiveMapFeatures.stations(listOf(noHeading)).features()!!.single()
 
@@ -79,6 +80,16 @@ class LiveMapFeaturesTest {
         assertEquals("station-car", feature.getStringProperty(LiveMapFeatures.ICON))
         assertFalse(feature.getBooleanProperty(LiveMapFeatures.TRAILER))
         assertFalse(feature.getBooleanProperty(LiveMapFeatures.STALE))
+    }
+
+    @Test
+    fun standingStationPointsAndPullsItsTrailerTheWayItLastDrove() {
+        val standing = car.copy(headingDeg = null, directionDeg = 270.0)
+
+        val feature = LiveMapFeatures.stations(listOf(standing)).features()!!.single()
+
+        assertEquals(270.0, feature.getNumberProperty(LiveMapFeatures.HEADING).toDouble(), 0.0)
+        assertTrue(feature.getBooleanProperty(LiveMapFeatures.TRAILER))
     }
 
     @Test
