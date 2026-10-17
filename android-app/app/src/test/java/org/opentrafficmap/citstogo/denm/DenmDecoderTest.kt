@@ -47,6 +47,18 @@ class DenmDecoderTest {
         stationType = 15,
         situation = DenmSituation(informationQuality = 7, causeCode = 3, subCauseCode = 4),
     )
+    private val roadworksDenm = roadSideUnitDenm.copy(
+        situation = DenmSituation(
+            informationQuality = 7,
+            causeCode = 3,
+            subCauseCode = 4,
+            eventZone = listOf(DeltaPosition(-1_204, 310), DeltaPosition(-950, 42), DeltaPosition(-1_310, -20)),
+        ),
+        traces = listOf(
+            listOf(DeltaPosition(1_150, -300), DeltaPosition(1_020, -260)),
+            listOf(DeltaPosition(-80, 1_400)),
+        ),
+    )
 
     @Test
     fun vehicleDenmMatchesWireshark() {
@@ -112,15 +124,10 @@ class DenmDecoderTest {
     }
 
     @Test
-    fun managementExtensionHidesTheSituation() {
-        val frame = frame(pdu(roadSideUnitDenm, managementExtension = true))
+    fun managementExtensionIsSkipped() {
+        val denm = assertMatchesWireshark(listOf(frame(pdu(roadSideUnitDenm, managementExtension = true)))).single()
 
-        val wireshark = Tshark.fields(listOf(frame), WiresharkDenm.fields).single()
-
-        // tshark skips the unknown addition and reads on, the decoder stops in front of it.
-        assertEquals("", wireshark.getValue("_ws.malformed"))
-        assertEquals(roadSideUnitDenm, WiresharkDenm.expected(wireshark))
-        assertEquals(roadSideUnitDenm.copy(situation = null), decode(frame))
+        assertEquals(roadSideUnitDenm, denm)
     }
 
     @Test
@@ -128,6 +135,43 @@ class DenmDecoderTest {
         val denm = assertMatchesWireshark(listOf(frame(pdu(vehicleDenm, causeCodeExtension = true)))).single()
 
         assertEquals(vehicleDenm, denm)
+    }
+
+    @Test
+    fun eventZoneAndTracesMatchWireshark() {
+        val denms = listOf(
+            roadworksDenm,
+            // Only traces, one of them without points, and one point whose latitude is unavailable.
+            vehicleDenm.copy(traces = listOf(emptyList(), listOf(DeltaPosition(DeltaPosition.UNAVAILABLE, 120)))),
+            // Only an event zone, without a LocationContainer.
+            roadworksDenm.copy(traces = emptyList()),
+        )
+
+        assertEquals(denms, assertMatchesWireshark(denms.map { frame(pdu(it)) }))
+    }
+
+    @Test
+    fun optionalFieldsAndExtensionsAroundTheGeometryAreSkipped() {
+        val pdu = pdu(
+            roadworksDenm,
+            managementExtension = true,
+            causeCodeExtension = true,
+            optionalFields = true,
+            extensions = true,
+        )
+
+        assertEquals(roadworksDenm, assertMatchesWireshark(listOf(frame(pdu))).single())
+    }
+
+    @Test
+    fun longestEventZoneAndTraces() {
+        val point = DeltaPosition(-131_071, 131_071)
+        val denm = roadworksDenm.copy(
+            situation = roadworksDenm.situation!!.copy(eventZone = List(23) { point }),
+            traces = List(7) { List(40) { point } },
+        )
+
+        assertEquals(denm, assertMatchesWireshark(listOf(frame(pdu(denm)))).single())
     }
 
     @Test
@@ -164,8 +208,10 @@ class DenmDecoderTest {
                 stationType = 5,
                 situation = DenmSituation(informationQuality = 4, causeCode = 3, subCauseCode = 0),
             ),
-            denm,
+            denm?.copy(traces = emptyList()),
         )
+        // The path points match tshark above.
+        assertEquals(listOf(40), denm?.traces?.map { it.size })
     }
 
     @Test
@@ -188,6 +234,7 @@ class DenmDecoderTest {
             pdu(vehicleDenm.copy(longitude = 1_800_000_002)),
             pdu(vehicleDenm.copy(validityDurationSeconds = 86_401)),
             pdu(vehicleDenm.copy(transmissionIntervalMs = 10_001)),
+            pdu(roadworksDenm).let { it.copyOf(it.size - 4) },
         )
 
         for (malformed in pdus) assertThrows(IntersectionDecodeException::class.java) { decode(frame(malformed)) }
@@ -248,6 +295,10 @@ internal object WiresharkDenm {
             "denm.informationQuality",
             "its.ccAndScc",
             "its.subCauseCode",
+            "denm.eventZone",
+            "its.Path",
+            "its.deltaLatitude",
+            "its.deltaLongitude",
         ) + subCauseFields.values
     }
 
@@ -255,8 +306,17 @@ internal object WiresharkDenm {
         if (values["its.protocolVersion"] != "2" || values["its.messageId"] != "1") return null
         // Later occurrences belong to linked causes, à la carte containers and the like.
         fun first(field: String): String? = values.getValue(field).substringBefore(',').ifEmpty { null }
+        fun all(field: String): List<Int> =
+            values.getValue(field).split(',').filter { it.isNotEmpty() }.map { it.toInt() }
         val informationQuality = first("denm.informationQuality")?.toInt()
         val causeCode = first("its.ccAndScc")?.toInt()
+        // The offsets of the event zone come first, then those of the traces, then any of the à la carte container.
+        val offsets = all("its.deltaLatitude").zip(all("its.deltaLongitude"), ::DeltaPosition)
+        val eventZone = offsets.take(first("denm.eventZone")?.toInt() ?: 0)
+        var traceStart = eventZone.size
+        val traces = all("its.Path").map { size ->
+            offsets.subList(traceStart, traceStart + size).also { traceStart += size }
+        }
         return ReceivedDenm(
             stationId = values.getValue("its.stationId").toLong(),
             originatingStationId = first("its.originatingStationId")!!.toLong(),
@@ -279,8 +339,9 @@ internal object WiresharkDenm {
                 null
             } else {
                 val subCauseCode = first(subCauseFields.getValue(causeCode)) ?: first("its.subCauseCode")
-                DenmSituation(informationQuality, causeCode, subCauseCode!!.toInt())
+                DenmSituation(informationQuality, causeCode, subCauseCode!!.toInt(), eventZone)
             },
+            traces = traces,
         )
     }
 }

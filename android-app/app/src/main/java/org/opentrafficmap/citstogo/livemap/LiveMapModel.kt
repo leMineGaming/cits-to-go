@@ -19,6 +19,9 @@ data class StationMarker(
     val stale: Boolean,
 )
 
+/** A position in degrees. */
+data class GeoPosition(val latitude: Double, val longitude: Double)
+
 /** A DENM event on the map, at its event position. */
 data class DenmMarker(
     /** The actionId as `<originatingStationId>/<sequenceNumber>`. */
@@ -28,8 +31,15 @@ data class DenmMarker(
     val stationTypeLabel: String,
     val latitude: Double,
     val longitude: Double,
+    /** The cause and subcause, for the detail card. */
     val label: String,
-    val icon: String,
+    /** The cause alone, under the marker. */
+    val causeLabel: String,
+    val iconGroup: DenmIconGroup,
+    /** The event zone from the event position on, empty without one. */
+    val eventZone: List<GeoPosition>,
+    /** The traces, each from the event position on. */
+    val traces: List<List<GeoPosition>>,
     val causeCode: Int?,
     val subCauseCode: Int?,
     val informationQuality: Int?,
@@ -107,11 +117,14 @@ object LiveMapModel {
             latitude = denm.latitude.degrees(),
             longitude = denm.longitude.degrees(),
             label = if (causeCode == null || subCauseCode == null) {
-                "Unknown cause"
+                UNKNOWN_CAUSE
             } else {
                 DenmCauses.label(causeCode, subCauseCode)
             },
-            icon = (causeCode?.let(DenmCauses::iconGroup) ?: DenmIconGroup.Hazard).icon,
+            causeLabel = causeCode?.let { DenmCauses.causeLabel(it) ?: "Cause $it" } ?: UNKNOWN_CAUSE,
+            iconGroup = causeCode?.let(DenmCauses::iconGroup) ?: DenmIconGroup.Hazard,
+            eventZone = denm.eventZone?.positions().orEmpty(),
+            traces = denm.traces.map { it.positions() },
             causeCode = causeCode,
             subCauseCode = subCauseCode,
             informationQuality = denm.informationQuality,
@@ -122,5 +135,10 @@ object LiveMapModel {
         )
     }
 
+    private fun PositionLine.positions(): List<GeoPosition> =
+        List(size) { GeoPosition(latitude(it).degrees(), longitude(it).degrees()) }
+
     private fun Int.degrees(): Double = this / 10_000_000.0
+
+    private const val UNKNOWN_CAUSE = "Unknown cause"
 }

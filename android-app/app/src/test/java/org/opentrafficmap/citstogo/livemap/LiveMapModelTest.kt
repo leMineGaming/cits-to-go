@@ -146,7 +146,10 @@ class LiveMapModelTest {
                 latitude = 48.2024036,
                 longitude = 16.3691773,
                 label = "Traffic jam",
-                icon = "denm-trafficjam",
+                causeLabel = "Traffic jam",
+                iconGroup = DenmIconGroup.TrafficJam,
+                eventZone = emptyList(),
+                traces = emptyList(),
                 causeCode = 1,
                 subCauseCode = 0,
                 informationQuality = 1,
@@ -173,9 +176,43 @@ class LiveMapModelTest {
         val missing = denmsAt(nowMs, jam.copy(causeCode = null, subCauseCode = null)).single()
 
         assertEquals("Cause 42 / sub 7", unknown.label)
-        assertEquals("denm-hazard", unknown.icon)
+        assertEquals("Cause 42", unknown.causeLabel)
+        assertEquals(DenmIconGroup.Hazard, unknown.iconGroup)
         assertEquals("Unknown cause", missing.label)
-        assertEquals("denm-hazard", missing.icon)
+        assertEquals("Unknown cause", missing.causeLabel)
+        assertEquals(DenmIconGroup.Hazard, missing.iconGroup)
+    }
+
+    @Test
+    fun mapLabelIsTheCauseAlone() {
+        val denm = denmsAt(nowMs, jam.copy(causeCode = 3, subCauseCode = 4)).single()
+
+        assertEquals("Short-term stationary roadworks", denm.label)
+        assertEquals("Roadworks", denm.causeLabel)
+        assertEquals(DenmIconGroup.Roadworks, denm.iconGroup)
+    }
+
+    @Test
+    fun eventZoneAndTracesAreInDegrees() {
+        val denm = denmsAt(
+            nowMs,
+            jam.copy(
+                eventZone = PositionLine(intArrayOf(482_024_036, 163_691_773, 482_014_036, 163_701_773)),
+                traces = listOf(
+                    PositionLine(intArrayOf(482_024_036, 163_691_773, 482_034_036, 163_681_773)),
+                    PositionLine(intArrayOf(482_024_036, 163_691_773, 482_024_036, 163_671_773)),
+                ),
+            ),
+        ).single()
+
+        assertEquals(listOf(GeoPosition(48.2024036, 16.3691773), GeoPosition(48.2014036, 16.3701773)), denm.eventZone)
+        assertEquals(
+            listOf(
+                listOf(GeoPosition(48.2024036, 16.3691773), GeoPosition(48.2034036, 16.3681773)),
+                listOf(GeoPosition(48.2024036, 16.3691773), GeoPosition(48.2024036, 16.3671773)),
+            ),
+            denm.traces,
+        )
     }
 
     @Test

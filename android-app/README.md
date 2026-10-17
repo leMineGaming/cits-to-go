@@ -114,8 +114,9 @@ PCAP output is classic libpcap with `DLT_IEEE802_11` link type and raw 802.11 fr
 
 The **Map** page shows received CAM stations and DENM events on an OpenFreeMap base map, with the phone's own
 position. It works during a capture or a PCAP replay and needs a data connection for the base map. Markers turn grey
-after 3 s without a CAM and disappear after **Settings → Map → Station timeout** (default 10 s). Tap a marker for its
-details. The history button adds the road side units and traffic lights heard before, optionally limited under
+after 3 s without a CAM and disappear after **Settings → Map → Station timeout** (default 10 s). DENMs are orange
+circles with an abbreviation of their cause, the event zone as a solid and the traces as dashed lines, like on the
+OpenTrafficMap web map. Tap a marker for its details. The history button adds the road side units and traffic lights heard before, optionally limited under
 **Settings → Map → Road side units heard within**. See [map view notes](../docs/MAP_VIEW.md).
 
 ### Battery settings for long captures

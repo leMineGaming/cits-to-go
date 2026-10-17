@@ -1,13 +1,17 @@
 package org.opentrafficmap.citstogo.livemap
 
-/** The DENM icons of the map. Causes without an icon of their own show a general hazard. */
-enum class DenmIconGroup {
-    TrafficJam,
-    Accident,
-    Roadworks,
-    StationaryVehicle,
-    Emergency,
-    Hazard;
+/**
+ * The DENM markers of the map: circles with an [abbreviation], orange, and red for an [alert]. Causes without a group
+ * of their own show a general hazard.
+ */
+enum class DenmIconGroup(val abbreviation: String, val alert: Boolean = false) {
+    TrafficJam("TC"),
+    Accident("AC"),
+    Roadworks("RW"),
+    StationaryVehicle("SV"),
+    Emergency("EM"),
+    CollisionRisk("!", alert = true),
+    Hazard("!");
 
     val icon: String get() = "denm-${name.lowercase()}"
 }
@@ -306,6 +310,7 @@ object DenmCauses {
         3 -> DenmIconGroup.Roadworks
         in 91..94 -> DenmIconGroup.StationaryVehicle
         15, 95 -> DenmIconGroup.Emergency
+        97 -> DenmIconGroup.CollisionRisk
         else -> DenmIconGroup.Hazard
     }
 }

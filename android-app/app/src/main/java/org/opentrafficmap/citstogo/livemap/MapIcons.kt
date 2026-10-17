@@ -3,27 +3,32 @@ package org.opentrafficmap.citstogo.livemap
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.CornerPathEffect
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
+import android.graphics.Typeface
 import kotlin.math.roundToInt
 import org.maplibre.android.maps.Style
 
 /**
  * The marker icons of the live map, drawn for the screen density. Stations are circles with a pictogram, coloured by
  * [StationIconGroup], with a pointer along their heading and, for vehicles with a trailer, a trailer opposite it; all
- * have a grey variant for stale markers. DENMs are warning signs by [DenmIconGroup]. Road side units from history are
- * a traffic light or a mast with radio waves. The white outlines keep them readable on light and dark map styles.
- * The own vehicle can pull a trailer in the colours of its icon.
+ * have a grey variant for stale markers. DENMs are orange circles with the abbreviation of their [DenmIconGroup], red
+ * for an alert. Road side units from history are a traffic light or a mast with radio waves. The white outlines keep
+ * them readable on light and dark map styles. The own vehicle can pull a trailer in the colours of its icon.
  */
 object MapIcons {
     const val STALE_SUFFIX = "-stale"
     const val POINTER_SUFFIX = "-pointer"
     const val TRAILER_SUFFIX = "-trailer"
     const val OWN_TRAILER = "own-trailer"
+
+    // The DENM colours of OpenTrafficMap, which the event zones and traces share.
+    const val DENM_WARNING = 0xFFFF922B.toInt()
+    const val DENM_ALERT = 0xFFFF6B6B.toInt()
+    const val DENM_OUTLINE = 0xFFFFF4E6.toInt()
 
     private const val STATION_SIZE_DP = 26f
     private const val POINTER_SIZE_DP = 42f
@@ -33,15 +38,12 @@ object MapIcons {
     private const val OWN_ICON_SIZE_DP = 48f
     private const val OWN_TRAILER_WIDTH_DP = 28f
     private const val OWN_TRAILER_HEIGHT_DP = 104f
-    private const val SIGN_SIZE_DP = 34f
+    private const val DENM_SIZE_DP = 30f
     private const val ROAD_SIDE_UNIT_SIZE_DP = 26f
     private const val PIN_SIZE_DP = 38f
     private const val OUTLINE = 0xFFFFFFFF.toInt()
     private const val INK = 0xFF111827.toInt()
     private const val STALE = 0xFF94A3B8.toInt()
-    private const val WARNING_RED = 0xFFDC2626.toInt()
-    private const val EMERGENCY_BLUE = 0xFF1D4ED8.toInt()
-    private const val ROADWORKS_YELLOW = 0xFFFACC15.toInt()
     private const val SLATE = 0xFF334155.toInt()
     private const val SIGNAL_RED = 0xFFEF4444.toInt()
     private const val SIGNAL_AMBER = 0xFFF59E0B.toInt()
@@ -64,7 +66,7 @@ object MapIcons {
                 style.addImage(pointer + STALE_SUFFIX, painter.pointer(STALE, trailer))
             }
         }
-        DenmIconGroup.entries.forEach { style.addImage(it.icon, painter.sign(it)) }
+        DenmIconGroup.entries.forEach { style.addImage(it.icon, painter.denm(it)) }
         style.addImage(RoadSideUnitHistory.TRAFFIC_LIGHT_ICON, painter.trafficLight())
         style.addImage(RoadSideUnitHistory.ROAD_SIDE_UNIT_ICON, painter.roadSideUnit())
         style.addImage(FocusMarker.ICON, painter.pin())
@@ -310,61 +312,23 @@ object MapIcons {
             }
         }
 
-        /** A warning triangle with a pictogram; emergencies have a blue border, roadworks a yellow face. */
-        fun sign(group: DenmIconGroup): Bitmap = draw(SIGN_SIZE_DP) { size ->
-            val rounded = CornerPathEffect(2.5f * dp)
-            val triangle = polygon(size, 0.5f, 0.1f, 0.95f, 0.88f, 0.05f, 0.88f)
-            outline.pathEffect = rounded
-            fill.pathEffect = rounded
-            drawPath(triangle, outline)
-            fill.color = if (group == DenmIconGroup.Emergency) EMERGENCY_BLUE else WARNING_RED
-            drawPath(triangle, fill)
-            fill.color = if (group == DenmIconGroup.Roadworks) ROADWORKS_YELLOW else OUTLINE
-            drawPath(polygon(size, 0.5f, 0.3f, 0.78f, 0.78f, 0.22f, 0.78f), fill)
-            outline.pathEffect = null
-            fill.pathEffect = null
-            fill.color = INK
-            pictogram(group, size)
-        }
-
-        private fun Canvas.pictogram(group: DenmIconGroup, size: Float) {
-            fun rect(left: Float, top: Float, right: Float, bottom: Float) =
-                RectF(left * size, top * size, right * size, bottom * size)
-            val line = Paint(fill).apply {
-                style = Paint.Style.STROKE
-                strokeCap = Paint.Cap.ROUND
-                strokeWidth = 0.06f * size
+        /** A circle in the colour of [group] with its abbreviation, like the DENM markers of OpenTrafficMap. */
+        fun denm(group: DenmIconGroup): Bitmap = draw(DENM_SIZE_DP) { size ->
+            val ring = Paint(outline).apply {
+                strokeWidth = 2f * dp
+                color = DENM_OUTLINE
             }
-            val corner = 0.02f * size
-            when (group) {
-                DenmIconGroup.TrafficJam -> {
-                    drawRoundRect(rect(0.43f, 0.45f, 0.57f, 0.56f), corner, corner, fill)
-                    drawRoundRect(rect(0.43f, 0.60f, 0.57f, 0.71f), corner, corner, fill)
-                }
-                DenmIconGroup.Accident -> {
-                    drawLine(0.42f * size, 0.5f * size, 0.6f * size, 0.72f * size, line)
-                    drawLine(0.58f * size, 0.5f * size, 0.4f * size, 0.72f * size, line)
-                }
-                DenmIconGroup.Roadworks -> {
-                    drawPath(polygon(size, 0.5f, 0.43f, 0.6f, 0.7f, 0.4f, 0.7f), fill)
-                    drawRect(rect(0.36f, 0.7f, 0.64f, 0.74f), fill)
-                }
-                DenmIconGroup.StationaryVehicle -> {
-                    drawPath(polygon(size, 0.42f, 0.56f, 0.45f, 0.47f, 0.55f, 0.47f, 0.58f, 0.56f), fill)
-                    drawRoundRect(rect(0.37f, 0.55f, 0.63f, 0.68f), corner, corner, fill)
-                    drawRect(rect(0.39f, 0.68f, 0.45f, 0.72f), fill)
-                    drawRect(rect(0.55f, 0.68f, 0.61f, 0.72f), fill)
-                }
-                DenmIconGroup.Emergency -> {
-                    drawArc(rect(0.41f, 0.55f, 0.59f, 0.73f), 180f, 180f, true, fill)
-                    drawRect(rect(0.38f, 0.64f, 0.62f, 0.7f), fill)
-                    drawLine(0.5f * size, 0.45f * size, 0.5f * size, 0.5f * size, line)
-                }
-                DenmIconGroup.Hazard -> {
-                    drawRoundRect(rect(0.47f, 0.42f, 0.53f, 0.63f), corner, corner, fill)
-                    drawCircle(0.5f * size, 0.7f * size, 0.035f * size, fill)
-                }
+            val radius = size / 2f - ring.strokeWidth / 2f
+            fill.color = if (group.alert) DENM_ALERT else DENM_WARNING
+            drawCircle(size / 2f, size / 2f, radius, fill)
+            drawCircle(size / 2f, size / 2f, radius, ring)
+            val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = OUTLINE
+                textAlign = Paint.Align.CENTER
+                textSize = 14f * dp
+                typeface = Typeface.DEFAULT_BOLD
             }
+            drawText(group.abbreviation, size / 2f, size / 2f - (text.ascent() + text.descent()) / 2f, text)
         }
 
         private fun draw(sizeDp: Float, block: Canvas.(size: Float) -> Unit): Bitmap =

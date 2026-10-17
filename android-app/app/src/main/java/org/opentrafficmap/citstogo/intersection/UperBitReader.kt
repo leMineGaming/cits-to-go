@@ -49,6 +49,23 @@ internal class UperBitReader(private val bytes: ByteArray, byteOffset: Int = 0) 
     fun skipOctets(octets: Int) {
         skipBits(octets * 8)
     }
+
+    /** An unconstrained length determinant of up to 16383; fragmented lengths are not supported. */
+    fun lengthDeterminant(): Int = when {
+        !bit() -> bits(7).toInt()
+        !bit() -> bits(14).toInt()
+        else -> throw IntersectionDecodeException("Fragmented PER lengths are not supported")
+    }
+
+    /**
+     * Skips the extension additions of a SEQUENCE whose extension bit is set: the bitmap of the present additions
+     * after its normally small length, then each present addition as an open type.
+     */
+    fun skipExtensionAdditions() {
+        val count = if (!bit()) bits(6).toInt() + 1 else lengthDeterminant()
+        val present = (1..count).count { bit() }
+        repeat(present) { skipOctets(lengthDeterminant()) }
+    }
 }
 
 class IntersectionDecodeException(message: String) : Exception(message)

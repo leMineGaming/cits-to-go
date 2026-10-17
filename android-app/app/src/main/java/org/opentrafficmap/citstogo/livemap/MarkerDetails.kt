@@ -1,5 +1,7 @@
 package org.opentrafficmap.citstogo.livemap
 
+import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.roundToInt
 import org.opentrafficmap.citstogo.station.DiscoveredStation
 import org.opentrafficmap.citstogo.station.ItsPacketType
@@ -41,8 +43,18 @@ object MarkerDetailsFormat {
         }
         rows += "Last received" to "${duration(denm.sinceReceivedMs)} ago"
         rows += "Expires" to "in ${duration(denm.expiresAtMs - nowMs)}"
+        if (denm.eventZone.isNotEmpty()) rows += "Event zone" to "${lengthMeters(denm.eventZone).roundToInt()} m"
+        if (denm.traces.isNotEmpty()) rows += "Traces" to denm.traces.size.toString()
         return MarkerDetails(title = denm.label, rows = rows)
     }
+
+    /** Along the line, on a sphere; the points of an event zone lie a few hundred metres apart. */
+    private fun lengthMeters(line: List<GeoPosition>): Double = line.zipWithNext { from, to ->
+        val latitude = Math.toRadians((from.latitude + to.latitude) / 2)
+        val north = Math.toRadians(to.latitude - from.latitude)
+        val east = Math.toRadians(to.longitude - from.longitude) * cos(latitude)
+        EARTH_RADIUS_M * hypot(north, east)
+    }.sum()
 
     /** A road side unit from history. Times are when the receiver heard it, in a replay when the capture did. */
     fun roadSideUnit(unit: RoadSideUnitMarker, nowMs: Long): MarkerDetails = MarkerDetails(
@@ -110,4 +122,5 @@ object MarkerDetailsFormat {
     private fun ago(atMs: Long, nowMs: Long): String = if (atMs == 0L) UNAVAILABLE else "${duration(nowMs - atMs)} ago"
 
     private const val UNAVAILABLE = "Unavailable"
+    private const val EARTH_RADIUS_M = 6_371_000.0
 }

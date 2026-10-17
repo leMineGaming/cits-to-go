@@ -4,6 +4,7 @@ import java.io.Serializable
 import org.opentrafficmap.citstogo.cam.CamDecoder
 import org.opentrafficmap.citstogo.cam.CamHighFrequencyContainer
 import org.opentrafficmap.citstogo.cam.ReceivedCam
+import org.opentrafficmap.citstogo.denm.DeltaPosition
 import org.opentrafficmap.citstogo.denm.DenmDecoder
 import org.opentrafficmap.citstogo.denm.ReceivedDenm
 import org.opentrafficmap.citstogo.intersection.IntersectionDecodeException
@@ -45,7 +46,50 @@ data class LiveMapDenm(
     val detectedAtMs: Long,
     val receivedAtMs: Long,
     val expiresAtMs: Long,
+    /** The event zone from the event position on, `null` without at least one known point. */
+    val eventZone: PositionLine? = null,
+    /** The traces from the event position on that have at least one known point. */
+    val traces: List<PositionLine> = emptyList(),
 ) : Serializable
+
+/**
+ * Positions in transmitted units, 0.1 microdegrees, as pairs of latitude and longitude. One array, so that a snapshot
+ * with many traces stays small on its way from the service to the interface.
+ */
+class PositionLine(private val coordinates: IntArray) : Serializable {
+    val size: Int get() = coordinates.size / 2
+
+    fun latitude(index: Int): Int = coordinates[2 * index]
+
+    fun longitude(index: Int): Int = coordinates[2 * index + 1]
+
+    override fun equals(other: Any?): Boolean = other is PositionLine && coordinates.contentEquals(other.coordinates)
+
+    override fun hashCode(): Int = coordinates.contentHashCode()
+
+    override fun toString(): String = "PositionLine(${coordinates.toList().chunked(2)})"
+
+    companion object {
+        /**
+         * The line from [latitude], [longitude] along [offsets], each from the position before; `null` if it has no
+         * second position. It ends in front of an unavailable offset, after which no position is known.
+         */
+        fun of(latitude: Int, longitude: Int, offsets: List<DeltaPosition>): PositionLine? {
+            val known = offsets.takeWhile {
+                it.latitude != DeltaPosition.UNAVAILABLE && it.longitude != DeltaPosition.UNAVAILABLE
+            }
+            if (known.isEmpty()) return null
+            val coordinates = IntArray(2 * (known.size + 1))
+            coordinates[0] = latitude
+            coordinates[1] = longitude
+            known.forEachIndexed { index, offset ->
+                coordinates[2 * index + 2] = coordinates[2 * index] + offset.latitude
+                coordinates[2 * index + 3] = coordinates[2 * index + 1] + offset.longitude
+            }
+            return PositionLine(coordinates)
+        }
+    }
+}
 
 data class LiveMapSnapshot(
     val stations: List<LiveMapStation>,
@@ -139,14 +183,23 @@ class LiveMapStore {
         denms.clear()
     }
 
-    /** Drops stations after the longest station timeout and expired DENMs, and returns what remains to be shown. */
+    /**
+     * Drops stations after the longest station timeout and expired DENMs, and returns what remains to be shown. The
+     * event zones and traces share [MAX_LINE_POSITIONS]; should they not all fit, those of the events received last
+     * come first.
+     */
     @Synchronized
     fun snapshot(nowMs: Long): LiveMapSnapshot {
         stations.values.removeAll { nowMs - it.receivedAtMs > LiveMapModel.MAX_STATION_TIMEOUT_MS }
         denms.values.removeAll { it.expiresAtMs <= nowMs }
+        var linePositionsLeft = MAX_LINE_POSITIONS
         return LiveMapSnapshot(
             stations = stations.values.map { it.snapshot() },
-            denms = denms.values.mapNotNull { it.snapshot() },
+            denms = denms.values.sortedByDescending { it.receivedAtMs }.mapNotNull { entry ->
+                entry.snapshot(linePositionsLeft)?.also { denm ->
+                    linePositionsLeft -= (denm.eventZone?.size ?: 0) + denm.traces.sumOf { it.size }
+                }
+            },
         )
     }
 
@@ -181,22 +234,38 @@ class LiveMapStore {
         val expiresAtMs: Long,
         var receivedAtMs: Long,
     ) {
-        /** `null` once terminated or without an event position. */
-        fun snapshot(): LiveMapDenm? {
+        private val eventZone = denm.situation?.eventZone?.let { line(it) }
+        private val traces = denm.traces.mapNotNull { line(it) }
+
+        /**
+         * `null` once terminated or without an event position. The event zone and traces come along as far as they
+         * fit into [linePositions].
+         */
+        fun snapshot(linePositions: Int): LiveMapDenm? {
             if (denm.termination != null) return null
+            val latitude = denm.latitude ?: return null
+            val longitude = denm.longitude ?: return null
+            var left = linePositions
+            fun fits(line: PositionLine): Boolean = (line.size <= left).also { if (it) left -= line.size }
             return LiveMapDenm(
                 originatingStationId = denm.originatingStationId,
                 sequenceNumber = denm.sequenceNumber,
                 stationType = denm.stationType,
-                latitude = denm.latitude ?: return null,
-                longitude = denm.longitude ?: return null,
+                latitude = latitude,
+                longitude = longitude,
                 causeCode = denm.situation?.causeCode,
                 subCauseCode = denm.situation?.subCauseCode,
                 informationQuality = denm.situation?.informationQuality,
                 detectedAtMs = detectedAtMs,
                 receivedAtMs = receivedAtMs,
                 expiresAtMs = expiresAtMs,
+                eventZone = eventZone?.takeIf(::fits),
+                traces = traces.filter(::fits),
             )
+        }
+
+        private fun line(offsets: List<DeltaPosition>): PositionLine? {
+            return PositionLine.of(denm.latitude ?: return null, denm.longitude ?: return null, offsets)
         }
     }
 
@@ -205,6 +274,12 @@ class LiveMapStore {
     private companion object {
         const val MAX_STATIONS = 500
         const val MAX_DENMS = 200
+
+        /**
+         * 8 bytes each in the snapshot that the service sends every second. DENMs in the captures nearly always have
+         * one trace of up to 41 positions, so this holds the lines of about a hundred events.
+         */
+        const val MAX_LINE_POSITIONS = 4_000
         const val GENERATION_DELTA_TIME_RANGE = 65_536
         const val CAM_REORDERING_WINDOW_MS = 30_000L
     }

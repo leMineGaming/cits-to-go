@@ -8,6 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 import org.opentrafficmap.citstogo.station.DiscoveredStation
 
@@ -34,7 +35,10 @@ class LiveMapFeaturesTest {
         latitude = 48.1,
         longitude = 16.2,
         label = "Short-term stationary roadworks",
-        icon = "denm-roadworks",
+        causeLabel = "Roadworks",
+        iconGroup = DenmIconGroup.Roadworks,
+        eventZone = emptyList(),
+        traces = emptyList(),
         causeCode = 3,
         subCauseCode = 4,
         informationQuality = 2,
@@ -100,7 +104,43 @@ class LiveMapFeaturesTest {
         assertEquals(Point.fromLngLat(16.2, 48.1), feature.geometry())
         assertEquals("1021000/7", feature.getStringProperty(LiveMapFeatures.DENM_ID))
         assertEquals("denm-roadworks", feature.getStringProperty(LiveMapFeatures.ICON))
+        assertEquals("Roadworks", feature.getStringProperty(LiveMapFeatures.LABEL))
         assertFalse(feature.hasProperty(LiveMapFeatures.STATION_ID))
+    }
+
+    @Test
+    fun eventZonesAreLinesRedForAnAlert() {
+        val zone = listOf(GeoPosition(48.1, 16.2), GeoPosition(48.099, 16.201), GeoPosition(48.098, 16.2))
+        val collision = roadworks.copy(id = "5/1", iconGroup = DenmIconGroup.CollisionRisk, eventZone = zone)
+
+        val features = LiveMapFeatures.denmZones(listOf(roadworks, roadworks.copy(eventZone = zone), collision))
+            .features()!!
+
+        assertEquals(2, features.size)
+        assertEquals(
+            LineString.fromLngLats(zone.map { Point.fromLngLat(it.longitude, it.latitude) }),
+            features[0].geometry(),
+        )
+        assertEquals("1021000/7", features[0].getStringProperty(LiveMapFeatures.DENM_ID))
+        assertEquals(false, features[0].getBooleanProperty(LiveMapFeatures.ALERT))
+        assertEquals("5/1", features[1].getStringProperty(LiveMapFeatures.DENM_ID))
+        assertEquals(true, features[1].getBooleanProperty(LiveMapFeatures.ALERT))
+    }
+
+    @Test
+    fun everyTraceIsALineOfItsOwn() {
+        val traces = listOf(
+            listOf(GeoPosition(48.1, 16.2), GeoPosition(48.101, 16.2)),
+            listOf(GeoPosition(48.1, 16.2), GeoPosition(48.1, 16.199), GeoPosition(48.099, 16.198)),
+        )
+
+        val features = LiveMapFeatures.denmTraces(listOf(roadworks, roadworks.copy(traces = traces))).features()!!
+
+        assertEquals(
+            traces.map { trace -> LineString.fromLngLats(trace.map { Point.fromLngLat(it.longitude, it.latitude) }) },
+            features.map { it.geometry() },
+        )
+        assertEquals(List(2) { "1021000/7" }, features.map { it.getStringProperty(LiveMapFeatures.DENM_ID) })
     }
 
     @Test

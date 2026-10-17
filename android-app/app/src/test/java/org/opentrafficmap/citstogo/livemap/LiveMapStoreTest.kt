@@ -14,6 +14,7 @@ import org.opentrafficmap.citstogo.cam.ItsG5FrameBuilder
 import org.opentrafficmap.citstogo.cam.ReceivedCam
 import org.opentrafficmap.citstogo.cam.StationType
 import org.opentrafficmap.citstogo.cam.VehicleDimensions
+import org.opentrafficmap.citstogo.denm.DeltaPosition
 import org.opentrafficmap.citstogo.denm.DenmSituation
 import org.opentrafficmap.citstogo.denm.DenmTermination.Cancellation
 import org.opentrafficmap.citstogo.denm.DenmTermination.Negation
@@ -507,6 +508,72 @@ class LiveMapStoreTest {
     }
 
     @Test
+    fun eventZoneAndTracesStartAtTheEventPosition() {
+        val store = LiveMapStore()
+        val roadworks = jam.copy(
+            situation = DenmSituation(
+                informationQuality = 7,
+                causeCode = 3,
+                subCauseCode = 4,
+                eventZone = listOf(DeltaPosition(-1_000, 300), DeltaPosition(-900, 0)),
+            ),
+            traces = listOf(
+                listOf(DeltaPosition(1_100, -300), DeltaPosition(DeltaPosition.UNAVAILABLE, 0), DeltaPosition(5, 5)),
+                // Nothing known beyond the event position.
+                listOf(DeltaPosition(0, DeltaPosition.UNAVAILABLE)),
+                emptyList(),
+                listOf(DeltaPosition(-50, 1_200)),
+            ),
+        )
+
+        store.accept(roadworks, nowMs, nowMs)
+
+        val denm = store.snapshot(nowMs).denms.single()
+        assertEquals(
+            PositionLine(intArrayOf(482_024_036, 163_691_773, 482_023_036, 163_692_073, 482_022_136, 163_692_073)),
+            denm.eventZone,
+        )
+        assertEquals(
+            listOf(
+                PositionLine(intArrayOf(482_024_036, 163_691_773, 482_025_136, 163_691_473)),
+                PositionLine(intArrayOf(482_024_036, 163_691_773, 482_023_986, 163_692_973)),
+            ),
+            denm.traces,
+        )
+    }
+
+    @Test
+    fun linesOfTheEventsReceivedLastComeFirst() {
+        val store = LiveMapStore()
+        // 4 + 36 positions each, so the lines of 100 events fit.
+        val denm = jam.copy(
+            situation = DenmSituation(1, 1, 0, eventZone = List(3) { DeltaPosition(10, 10) }),
+            traces = listOf(List(35) { DeltaPosition(-10, 0) }),
+        )
+        for (sequenceNumber in 0 until 110) {
+            store.accept(denm.copy(sequenceNumber = sequenceNumber), nowMs + sequenceNumber, nowMs + sequenceNumber)
+        }
+
+        val denms = store.snapshot(nowMs + 110).denms
+
+        assertEquals(110, denms.size)
+        assertEquals((109 downTo 10).toList(), denms.filter { it.eventZone != null }.map { it.sequenceNumber })
+        assertEquals((109 downTo 10).toList(), denms.filter { it.traces.isNotEmpty() }.map { it.sequenceNumber })
+    }
+
+    @Test
+    fun linesOfAnEncodedDenmReachTheSnapshot() {
+        val store = LiveMapStore()
+        val denm = jam.copy(traces = listOf(listOf(DeltaPosition(100, -100), DeltaPosition(100, -100))))
+        val frame = shbFrame(SyntheticDenm.pdu(denm), DENM_PORT)
+
+        store.accept(requireNotNull(ItsFrameExtractor.extract(frame)), nowMs, nowMs)
+
+        val trace = intArrayOf(482_024_036, 163_691_773, 482_024_136, 163_691_673, 482_024_236, 163_691_573)
+        assertEquals(listOf(PositionLine(trace)), store.snapshot(nowMs).denms.single().traces)
+    }
+
+    @Test
     fun fullSnapshotStaysSmall() {
         val store = LiveMapStore()
         for (id in 0 until 500) {
@@ -515,9 +582,14 @@ class LiveMapStoreTest {
                 nowMs,
             )
         }
+        val offset = DeltaPosition(-131_071, 131_071)
         for (sequenceNumber in 0 until 200) {
             store.accept(
-                jam.copy(sequenceNumber = 65_535 - sequenceNumber, situation = DenmSituation(7, 255, 255)),
+                jam.copy(
+                    sequenceNumber = 65_535 - sequenceNumber,
+                    situation = DenmSituation(7, 255, 255, eventZone = List(23) { offset }),
+                    traces = List(7) { List(40) { offset } },
+                ),
                 nowMs,
                 nowMs,
             )
@@ -529,7 +601,9 @@ class LiveMapStoreTest {
         println("Full snapshot: ${bytes.size()} bytes")
         assertEquals(500, snapshot.stations.size)
         assertEquals(200, snapshot.denms.size)
-        assertTrue("${bytes.size()} bytes", bytes.size() < 64 * 1_024)
+        val linePositions = snapshot.denms.sumOf { denm -> (denm.eventZone?.size ?: 0) + denm.traces.sumOf { it.size } }
+        assertTrue("$linePositions line positions", linePositions <= 4_000)
+        assertTrue("${bytes.size()} bytes", bytes.size() < 128 * 1_024)
     }
 
     /** A cancellation of [denm] 10 s after its detection, valid for 30 s. */

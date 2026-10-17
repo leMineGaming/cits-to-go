@@ -279,11 +279,21 @@ class DenmCausesTest {
             94 to DenmIconGroup.StationaryVehicle,
             15 to DenmIconGroup.Emergency,
             95 to DenmIconGroup.Emergency,
+            97 to DenmIconGroup.CollisionRisk,
         )
 
         for (cause in 0..255) {
             assertEquals("$cause", groups[cause] ?: DenmIconGroup.Hazard, DenmCauses.iconGroup(cause))
         }
         assertEquals(DenmIconGroup.entries.size, DenmIconGroup.entries.map { it.icon }.toSet().size)
+    }
+
+    @Test
+    fun onlyACollisionRiskIsAnAlert() {
+        assertEquals(listOf(DenmIconGroup.CollisionRisk), DenmIconGroup.entries.filter { it.alert })
+        assertEquals(
+            listOf("TC", "AC", "RW", "SV", "EM", "!", "!"),
+            DenmIconGroup.entries.map { it.abbreviation },
+        )
     }
 }

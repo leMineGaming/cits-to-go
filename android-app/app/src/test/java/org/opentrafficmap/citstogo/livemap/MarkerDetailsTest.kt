@@ -29,7 +29,10 @@ class MarkerDetailsTest {
         latitude = 48.1,
         longitude = 16.2,
         label = "Short-term stationary roadworks",
-        icon = "denm-roadworks",
+        causeLabel = "Roadworks",
+        iconGroup = DenmIconGroup.Roadworks,
+        eventZone = emptyList(),
+        traces = emptyList(),
         causeCode = 3,
         subCauseCode = 4,
         informationQuality = 2,
@@ -103,6 +106,19 @@ class MarkerDetailsTest {
         assertEquals("Unavailable", rows["Information quality"])
         assertEquals("1 min 5 s ago", rows["Detected"])
         assertEquals(null, rows["Updated"])
+    }
+
+    @Test
+    fun eventZoneLengthAndTraces() {
+        // 0.001° of latitude is 111.2 m.
+        val zone = listOf(GeoPosition(48.1, 16.2), GeoPosition(48.099, 16.2), GeoPosition(48.098, 16.2))
+        val traces = listOf(zone.take(2), zone.take(2))
+
+        val rows = MarkerDetailsFormat.denm(roadworks.copy(eventZone = zone, traces = traces), nowMs).rows
+
+        assertEquals(listOf("Event zone" to "222 m", "Traces" to "2"), rows.takeLast(2))
+        assertEquals(null, MarkerDetailsFormat.denm(roadworks, nowMs).rows.toMap()["Event zone"])
+        assertEquals(null, MarkerDetailsFormat.denm(roadworks, nowMs).rows.toMap()["Traces"])
     }
 
     @Test

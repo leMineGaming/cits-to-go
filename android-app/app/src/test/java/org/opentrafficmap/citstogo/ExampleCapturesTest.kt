@@ -88,6 +88,7 @@ class ExampleCapturesTest {
             val store = LiveMapStore()
             val stations = mutableSetOf<Long>()
             val detections = mutableMapOf<String, MutableSet<Long>>()
+            var mostLinePositions = 0
             forEachItsPacket(capture) { _, capturedAtMs, packet ->
                 store.accept(packet, capturedAtMs, capturedAtMs)
                 if (packet.messageId != CamDecoder.MESSAGE_ID_CAM && packet.messageId != DenmDecoder.MESSAGE_ID_DENM) {
@@ -99,6 +100,10 @@ class ExampleCapturesTest {
                     val actionId = "${denm.originatingStationId}/${denm.sequenceNumber}"
                     detections.getOrPut(actionId) { mutableSetOf() } += denm.detectedAtMs
                 }
+                val linePositions = snapshot.denms.sumOf { denm ->
+                    (denm.eventZone?.size ?: 0) + denm.traces.sumOf { it.size }
+                }
+                mostLinePositions = maxOf(mostLinePositions, linePositions)
             }
 
             assertEquals("${capture.name}: stations", expectedStations, stations)
@@ -112,7 +117,8 @@ class ExampleCapturesTest {
             }
             println(
                 "${capture.name}: ${stations.size} stations, ${detections.size} of ${denmsByActionId.size} DENM " +
-                    "events shown, ${terminationsOnly.size} only as termination",
+                    "events shown, ${terminationsOnly.size} only as termination, at most $mostLinePositions " +
+                    "positions of event zones and traces at once",
             )
         }
     }

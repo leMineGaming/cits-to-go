@@ -14,24 +14,28 @@ status broadcast publishStatus() → EXTRA_LIVE_MAP_SNAPSHOT and EXTRA_ROAD_SIDE
 activity         MainActivity keeps the last LiveMapSnapshot and road side units
 Map page         every second while resumed: LiveMapModel.build(snapshot, now, station timeout),
                      with the history button on also RoadSideUnitHistory.build(road side units, now, days)
-                     → LiveMapFeatures → GeoJsonSource "roadSideUnits" / "stations" / "denms" / "focus"
-                     → SymbolLayer with MapIcons
+                     → LiveMapFeatures → GeoJsonSource "roadSideUnits" / "denm-traces" / "denm-zones" /
+                                         "stations" / "denms" / "focus"
+                     → LineLayer and SymbolLayer with MapIcons
 ```
 
 - **Decoders** (`cam/CamDecoder.kt`, `denm/DenmDecoder.kt`) read CAM and DENM UPER up to the fields the map needs:
-  position, station type, heading, speed and trailer of a CAM; the management container and the event type of a
-  DENM. Only `protocolVersion` 2 is accepted; version 1 differs on the wire. A malformed message is dropped on its own
-  and never disturbs capture, PCAP or MQTT.
+  position, station type, heading, speed and trailer of a CAM; the management container, the event type and event
+  zone of the situation container, and the traces of the location container of a DENM. The DENM decoder skips
+  extension additions, so later releases that append fields still decode. Only `protocolVersion` 2 is accepted;
+  version 1 differs on the wire. A malformed message is dropped on its own and never disturbs capture, PCAP or MQTT.
 - **Store** (`livemap/LiveMapStore.kt`) runs in the service and aggregates every packet, whether or not the page is
   open, so that the map is filled as soon as it opens. Each capture and each replay starts with an empty store.
 - **Snapshot** (`LiveMapSnapshot`) is a `Serializable` copy of the store in transmitted units. The service attaches it
-  to the status broadcast at most once per second.
+  to the status broadcast at most once per second. Event zones and traces travel as absolute positions in one
+  `IntArray` per line (`PositionLine`), together at most 4,000 positions; should more be active, the lines of the
+  events received last come first. The captures never had more than 66 at once.
 - **Model** (`livemap/LiveMapModel.kt`) is plain Kotlin: from a snapshot, the current time and the station timeout
   it computes what is visible, in display units, with labels (`StationTypes`, `DenmCauses`) and icon names.
 - **Layers** (`livemap/LiveMapLayers.kt`) turn the model into GeoJSON features (`LiveMapFeatures`, covered by JVM
-  tests) and add four sources and five symbol layers to the style, from the bottom: road side units from history, the
-  heading pointers of the stations with their trailers, the station circles, DENMs, and the pin of a station opened
-  from the Discovered Stations page. MapLibre's own position stays on top. Just below it, a sixth symbol layer draws
+  tests) and add six sources, two line layers and five symbol layers to the style, from the bottom: road side units
+  from history, the traces and the event zones of DENMs, the heading pointers of the stations with their trailers, the
+  station circles, DENMs with their cause, and the pin of a station opened from the Discovered Stations page. MapLibre's own position stays on top. Just below it, a sixth symbol layer draws
   the trailer of the own vehicle on MapLibre's own position source, so that the trailer moves with the animated
   position instead of jumping ahead of it. `livemap/MapIcons.kt` draws the icons with an Android `Canvas` for the
   screen density.
@@ -103,9 +107,17 @@ DENM events have no timeout of their own: they show until they expire or are ter
 - **Trailers**: a vehicle whose CAM reports a trailer, with known or unknown length (VehicleLengthConfidenceIndication
   1 or 2), has a small trailer on a drawbar behind its circle, opposite the pointer. Like the pointer it needs a
   heading, also one from an earlier CAM. A CAM that leaves the trailer unknown or unavailable (3 or 4) shows none.
-- **DENM events** are warning signs at the event position, with icons for traffic jams (causes 1 and 27), accidents
-  (2), roadworks (3), stationary vehicles (91–94) and emergencies (15 and 95), and a general hazard sign for all other
-  causes. Road operators report the start of the hazard in driving direction as the event position.
+- **DENM events** look like those of the OpenTrafficMap web map: an orange circle at the event position with an
+  abbreviation of the cause, TC for traffic jams (causes 1 and 27), AC for accidents (2), RW for roadworks (3), SV for
+  stationary vehicles (91–94), EM for emergencies (15 and 95) and ! for all other causes; a collision risk (97) is a
+  red circle with !. The name of the cause stands below the circle where there is room. Road operators report the
+  start of the hazard in driving direction as the event position.
+- **Event zones and traces**: the event zone of a DENM (eventHistory in DENM v1.3.1) is a solid line in the colour
+  of its circle, its traces (detectionZonesToEventPosition since TS 103 831) are dashed red lines. Both start at the
+  event position, every further point being an offset from the one before; a line ends in front of an unavailable
+  offset. In the captures nearly every DENM has one trace of up to 40 points, mostly the path of the reporting
+  vehicle, and only roadworks of road operators have an event zone. The card shows the length of the event zone and
+  the number of traces.
 - **Tapping** a marker opens a card with its details, which updates every second and closes when the marker
   disappears. Tapping the map elsewhere closes it. For DENMs of infrastructure senders (station types 9, 10 and 15)
   the card reads "Updated n s ago" instead of "Detected n s ago", because they set a new detection time with every
