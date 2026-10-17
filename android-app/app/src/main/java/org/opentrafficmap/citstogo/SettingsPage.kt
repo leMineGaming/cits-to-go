@@ -539,7 +539,7 @@ private fun VehicleTypeCard(
                     onLengthChange = onLengthChange,
                     width = width,
                     onWidthChange = onWidthChange,
-                    trailer = trailer,
+                    trailer = trailer.takeIf { VehicleDimensions.hasTrailerSetting(sremProfile) },
                     onTrailerChange = onTrailerChange,
                 )
                 // A trailer included in the length needs a length, which a cyclist does not send.
@@ -567,14 +567,17 @@ private fun VehicleTypeCard(
     }
 }
 
-/** Length, width and trailer of a vehicle profile, as its CAMs carry them. */
+/**
+ * Length, width and trailer of a vehicle profile, as its CAMs carry them. A profile without a trailer setting passes a
+ * `null` [trailer].
+ */
 @Composable
 private fun VehicleDimensionsFields(
     length: String,
     onLengthChange: (String) -> Unit,
     width: String,
     onWidthChange: (String) -> Unit,
-    trailer: VehicleDimensions.Trailer,
+    trailer: VehicleDimensions.Trailer?,
     onTrailerChange: (VehicleDimensions.Trailer) -> Unit,
 ) {
     val context = LocalContext.current
@@ -604,7 +607,7 @@ private fun VehicleDimensionsFields(
             style = MaterialTheme.typography.bodySmall,
             color = Color(ContextCompat.getColor(context, R.color.on_surface_variant)),
         )
-        VehicleTrailerOptions(trailer = trailer, onTrailerChange = onTrailerChange)
+        if (trailer != null) VehicleTrailerOptions(trailer = trailer, onTrailerChange = onTrailerChange)
     }
 }
 

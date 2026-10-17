@@ -65,20 +65,27 @@ data class VehicleDimensions(
         fun applies(profile: SremProfile): Boolean =
             profile != SremProfile.PEDESTRIAN && profile != SremProfile.BICYCLE
 
-        /** Whether [profile] has a trailer setting: every profile with a size, and the cyclist without one. */
-        fun hasTrailerSetting(profile: SremProfile): Boolean = applies(profile) || profile == SremProfile.BICYCLE
+        private val TRAILER_PROFILES = setOf(
+            SremProfile.BICYCLE,
+            SremProfile.PASSENGER_CAR,
+            SremProfile.LIGHT_TRUCK,
+            SremProfile.HEAVY_TRUCK,
+        )
+
+        /**
+         * Whether [profile] has a trailer setting: the cyclist, the passenger car and the trucks, which pull trailers
+         * and whose icons show one (issue #27). The other profiles send no trailer.
+         */
+        fun hasTrailerSetting(profile: SremProfile): Boolean = profile in TRAILER_PROFILES
 
         /**
          * The size that CAMs of [profile] carry: its size in [stored], else its [defaults]. A cyclist carries only its
-         * trailer, a pedestrian nothing.
+         * trailer, a pedestrian nothing, and a profile without a trailer setting no trailer, whatever is stored.
          */
         fun of(profile: SremProfile, stored: Map<SremProfile, VehicleDimensions>): VehicleDimensions {
             val dimensions = stored[profile] ?: defaults(profile)
-            return when {
-                applies(profile) -> dimensions
-                hasTrailerSetting(profile) -> UNAVAILABLE.copy(trailer = dimensions.trailer)
-                else -> UNAVAILABLE
-            }
+            val trailer = if (hasTrailerSetting(profile)) dimensions.trailer else Trailer.NONE
+            return if (applies(profile)) dimensions.copy(trailer = trailer) else UNAVAILABLE.copy(trailer = trailer)
         }
 
         /** The defaults proposed in issue #11; widths of 2.55 m round up to 2.6 m, the next 0.1 m step. */

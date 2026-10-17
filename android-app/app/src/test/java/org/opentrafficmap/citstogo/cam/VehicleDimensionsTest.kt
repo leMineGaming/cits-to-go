@@ -73,13 +73,38 @@ class VehicleDimensionsTest {
     }
 
     @Test
+    fun onlyTheCyclistThePassengerCarAndTheTrucksPullATrailer() {
+        val trailerProfiles = listOf(
+            SremProfile.BICYCLE,
+            SremProfile.PASSENGER_CAR,
+            SremProfile.LIGHT_TRUCK,
+            SremProfile.HEAVY_TRUCK,
+        )
+        assertEquals(trailerProfiles, SremProfile.entries.filter(VehicleDimensions::hasTrailerSetting))
+
+        // A trailer stored before is dropped, the size kept.
+        val stored = SremProfile.entries.associateWith {
+            VehicleDimensions(30, 10, VehicleDimensions.Trailer.KNOWN_LENGTH)
+        }
+        for (profile in SremProfile.entries - trailerProfiles.toSet() - SremProfile.PEDESTRIAN) {
+            val dimensions = VehicleDimensions.of(profile, stored)
+            assertEquals("$profile", VehicleDimensions(30, 10, VehicleDimensions.Trailer.NONE), dimensions)
+            assertEquals("$profile", 0, dimensions.lengthConfidenceIndication)
+            assertFalse("$profile", dimensions.reportsTrailer)
+            // Without a length, unavailable, as for any vehicle without a trailer.
+            val noLength = stored.getValue(profile).copy(lengthDm = null)
+            assertEquals("$profile", 4, VehicleDimensions.of(profile, mapOf(profile to noLength)).lengthConfidenceIndication)
+        }
+        for (profile in trailerProfiles - SremProfile.BICYCLE) {
+            assertEquals("$profile", stored[profile], VehicleDimensions.of(profile, stored))
+        }
+    }
+
+    @Test
     fun aCyclistHasOnlyATrailerSettingAndAPedestrianNone() {
         assertFalse(VehicleDimensions.hasTrailerSetting(SremProfile.PEDESTRIAN))
         assertTrue(VehicleDimensions.hasTrailerSetting(SremProfile.BICYCLE))
         assertFalse(VehicleDimensions.applies(SremProfile.BICYCLE))
-        SremProfile.entries.filter(VehicleDimensions::applies).forEach {
-            assertTrue("$it", VehicleDimensions.hasTrailerSetting(it))
-        }
 
         val withTrailer = VehicleDimensions.UNAVAILABLE.copy(trailer = VehicleDimensions.Trailer.UNKNOWN_LENGTH)
         val bicycle = VehicleDimensions.of(SremProfile.BICYCLE, mapOf(SremProfile.BICYCLE to withTrailer))

@@ -94,8 +94,10 @@ class CamDecoderTest {
         // The size of each profile as MainActivity sends it to the service.
         val profiles = listOf(
             SremProfile.HEAVY_TRUCK to VehicleDimensions(165, 26, VehicleDimensions.Trailer.KNOWN_LENGTH),
+            // A bus has no trailer setting, so a trailer stored before is dropped.
             SremProfile.PUBLIC_TRANSPORT_BUS to VehicleDimensions(120, 26, VehicleDimensions.Trailer.UNKNOWN_LENGTH),
             SremProfile.PASSENGER_CAR to VehicleDimensions(45, 18, VehicleDimensions.Trailer.NONE),
+            SremProfile.PASSENGER_CAR to VehicleDimensions(45, 18, VehicleDimensions.Trailer.UNKNOWN_LENGTH),
             SremProfile.LIGHT_TRUCK to VehicleDimensions(null, 25, VehicleDimensions.Trailer.UNKNOWN_LENGTH),
             SremProfile.PASSENGER_CAR to VehicleDimensions(null, 18, VehicleDimensions.Trailer.KNOWN_LENGTH),
             SremProfile.HEAVY_TRUCK to VehicleDimensions.UNAVAILABLE,
@@ -107,7 +109,7 @@ class CamDecoderTest {
         val frames = profiles.map { (profile, size) -> camFrame(profile.stationType, position, size) }
         val cams = assertMatchesWireshark(frames)
 
-        assertEquals(listOf(true, true, false, true, true, null, true, null, null), cams.map { it?.trailer })
+        assertEquals(listOf(true, false, false, true, true, true, null, true, null, null), cams.map { it?.trailer })
         // The own vehicle shows a trailer exactly when its CAMs report one.
         assertEquals(profiles.map { (_, size) -> size.reportsTrailer }, cams.map { it?.trailer == true })
     }

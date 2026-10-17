@@ -49,8 +49,10 @@ CAM page):
   (**Settings → Vehicle Type**, stored per profile; defaults from issue #11,
   e.g. 4.5 × 1.8 m for a passenger car). An empty field sends the
   unavailable value, and pedestrian and cyclist profiles send no length or
-  width. The cyclist profile has only the trailer setting, without
-  "Trailer, included in the length"; the pedestrian profile has none.
+  width. Only the cyclist, passenger car and truck profiles have a trailer
+  setting (issue #27), the cyclist without "Trailer, included in the
+  length"; the other profiles send no trailer, also when one was stored for
+  them before.
 - The trailer goes into `vehicleLengthConfidenceIndication`: no trailer (0),
   trailer included in the length (1) or trailer of unknown length (2). Without
   a length, a trailer is still sent, as 2 next to the unavailable length 1023,

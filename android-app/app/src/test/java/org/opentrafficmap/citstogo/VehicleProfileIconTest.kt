@@ -2,6 +2,7 @@ package org.opentrafficmap.citstogo
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import org.opentrafficmap.citstogo.cam.VehicleDimensions
 import org.opentrafficmap.citstogo.srem.SremProfile
 
 class VehicleProfileIconTest {
@@ -42,5 +43,12 @@ class VehicleProfileIconTest {
             SremProfile.entries.associateWith { it.iconRes(trailer = true) },
         )
         SremProfile.entries.forEach { assertEquals("$it", it.iconRes(), it.iconRes(trailer = false)) }
+    }
+
+    @Test
+    fun exactlyTheProfilesWithATrailerSettingHaveATrailerIcon() {
+        SremProfile.entries.forEach {
+            assertEquals("$it", VehicleDimensions.hasTrailerSetting(it), it.iconRes(trailer = true) != it.iconRes())
+        }
     }
 }
