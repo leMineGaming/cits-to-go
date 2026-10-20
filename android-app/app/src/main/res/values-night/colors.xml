@@ -32,6 +32,16 @@
     <color name="on_surface">#E6EDF6</color>
     <color name="on_surface_variant">#97A6BC</color>
 
+    <!-- The same ramp as the light theme, mirrored: here a higher container is the lighter one. -->
+    <color name="surface_container_lowest">#0A1120</color>
+    <color name="surface_container_low">#132032</color>
+    <color name="surface_container">#16233B</color>
+    <color name="surface_container_high">#1C2B47</color>
+    <color name="surface_container_highest">#24334D</color>
+
+    <!-- The off-but-usable switch handle, as bright against the dark track as the light theme's. -->
+    <color name="switch_off_ink">#97A6BC</color>
+
     <!-- Error Colors -->
     <color name="error">#F87171</color>
     <color name="error_container">#4C1E22</color>

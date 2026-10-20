@@ -43,6 +43,7 @@ import java.util.Locale
 import kotlin.math.roundToLong
 import kotlin.math.sqrt
 import kotlinx.coroutines.delay
+import org.opentrafficmap.citstogo.bridge.AutoRecording
 import org.opentrafficmap.citstogo.bridge.BluetoothEnrollment
 import org.opentrafficmap.citstogo.bridge.BleDebugParameters
 import org.opentrafficmap.citstogo.bridge.BridgeStatus
@@ -122,6 +123,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var displayAlwaysOnEnabled by mutableStateOf(false)
     private var stationDiscoveryNotificationEnabled by mutableStateOf(true)
     private var appUpdateNotificationEnabled by mutableStateOf(true)
+    private var autoConnectOnPluginEnabled by mutableStateOf(false)
+    private var autoRecordOnPluginEnabled by mutableStateOf(false)
+    /** Tree URI of the folder an automatic PCAP is named in, or null while none was chosen. */
+    private var autoRecordFolderUri by mutableStateOf<String?>(null)
+    /**
+     * Recording choice of a plug-in start waiting for the USB permission answer; null when no automatic
+     * start is waiting. The prompt ends in [usbPermissionReceiver], which has no other way to learn
+     * whether the start it carries was asked for by a plug-in.
+     */
+    private var autoStartRecordAfterPermission: Boolean? = null
     private var txApprovalPromptState by mutableStateOf(TxApprovalPromptState.Hidden)
     private var enableCamAfterPermission = false
     private var wantsIntersectionLocation = false
@@ -198,6 +209,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         ActivityResultContracts.StartActivityForResult(),
     ) { result -> handleDocumentResult(result, ::selectCustomFirmware) }
 
+    private val autoRecordFolderLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result -> handleDocumentResult(result, ::storeAutoRecordFolder) }
+
     private val intersectionLocationListener = LocationListener { location ->
         updateCurrentPosition(location)
     }
@@ -233,7 +248,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         bluetoothEnrollmentMessage = "USB device disappeared. Reconnect it and retry enrollment."
                     }
                 } else {
-                    startBridge()
+                    startBridge(autoStartRecord = autoStartRecordAfterPermission)
                 }
             } else {
                 if (flashAfterPermission) {
@@ -253,6 +268,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             flashAfterPermission = false
             enrollmentAfterPermission = false
             startAfterPermission = null
+            autoStartRecordAfterPermission = null
         }
     }
 
@@ -350,6 +366,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         applyDisplayAlwaysOn()
         stationDiscoveryNotificationEnabled = prefs.getBoolean(CitsBridgeService.PREF_NOTIFY_STATION_DISCOVERY, true)
         appUpdateNotificationEnabled = prefs.getBoolean(CitsBridgeService.PREF_NOTIFY_APP_UPDATE, true)
+        autoConnectOnPluginEnabled = prefs.getBoolean(PREF_AUTO_CONNECT_ON_PLUGIN, false)
+        autoRecordOnPluginEnabled = prefs.getBoolean(PREF_AUTO_RECORD_ON_PLUGIN, false)
+        // A folder the user moved or removed cannot be written to; treat it as none and ask for a new one.
+        autoRecordFolderUri = prefs.getString(PREF_AUTO_RECORD_FOLDER, null)?.takeIf { AutoRecording.isTreeUri(it) }
         intersectionSortMode = IntersectionSortMode.fromPreference(
             prefs.getString(PREF_INTERSECTION_SORT_MODE, null),
         )
@@ -416,6 +436,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         checkForAppUpdate()
         refreshDevices()
         selectedDeviceName = selectedDeviceName ?: devices.firstOrNull()?.deviceName
+        if (savedInstanceState == null) autoStartOnPlugIn(intent)
         setContent {
             CitsTheme(themeMode = themeMode) {
                 CitsApp(
@@ -530,6 +551,13 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                             .putBoolean(CitsBridgeService.PREF_NOTIFY_APP_UPDATE, enabled)
                             .apply()
                     },
+                    autoConnectOnPluginEnabled = autoConnectOnPluginEnabled,
+                    onAutoConnectOnPluginChange = ::updateAutoConnectOnPlugin,
+                    autoRecordOnPluginEnabled = autoRecordOnPluginEnabled,
+                    onAutoRecordOnPluginChange = ::updateAutoRecordOnPlugin,
+                    // Empty until a folder was chosen; the Settings page then says what it means.
+                    autoRecordFolderLabel = AutoRecording.folderLabel(autoRecordFolderUri),
+                    onChooseAutoRecordFolder = ::chooseAutoRecordFolder,
                     txApprovalPromptState = txApprovalPromptState,
                     onGrantTxApproval = ::grantTxApproval,
                     onDismissTxApproval = { txApprovalPromptState = TxApprovalPromptState.Hidden },
@@ -747,20 +775,21 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
-    private fun requestUsbThenStart() {
+    private fun requestUsbThenStart(autoStartRecord: Boolean? = null) {
         java.util.logging.Logger.getLogger("org.opentrafficmap.citstogo.Permissions").info("USB start requested; selected=$selectedDeviceName")
         saveSettings()
         refreshDevices()
         val device = devices.firstOrNull { it.deviceName == selectedDeviceName } ?: devices.firstOrNull()
         if (device == null) {
-            startBridge()
+            startBridge(autoStartRecord)
             return
         }
         selectedDeviceName = device.deviceName
         if (usbManager.hasPermission(device)) {
-            startBridge()
+            startBridge(autoStartRecord)
             return
         }
+        autoStartRecordAfterPermission = autoStartRecord
         startAfterPermission = device
         val intent = Intent(CitsBridgeService.ACTION_USB_PERMISSION).setPackage(packageName)
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or
@@ -771,6 +800,70 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         )
         usbManager.requestPermission(device, pendingIntent)
         logLine = "Requesting USB permission"
+    }
+
+    /**
+     * Does what the two plug-in settings asked for, and only when the plug-in itself opened the app.
+     * The attach intent the manifest device filter matches arrives as this activity's launch intent, so
+     * that is the moment the settings were meant for; a receiver plugged in while the app is already
+     * showing stays the user's affair. The activity cannot tell whether the bridge is already capturing,
+     * because its status arrives by broadcast and is still the default here, so a plug-in start goes to
+     * [CitsBridgeService.ACTION_AUTO_START], which the service refuses when something already runs.
+     */
+    private fun autoStartOnPlugIn(launchIntent: Intent?) {
+        if (launchIntent?.action != UsbManager.ACTION_USB_DEVICE_ATTACHED) return
+        val device = launchIntent.parcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE) ?: return
+        if (!AutoRecording.isReceiver(device.vendorId)) return
+        val plan = AutoRecording.plan(
+            autoConnectEnabled = autoConnectOnPluginEnabled,
+            autoRecordEnabled = autoRecordOnPluginEnabled,
+            folderChosen = AutoRecording.isTreeUri(autoRecordFolderUri),
+            connectionActive = status.running,
+            replayActive = status.replaying,
+            usbTransport = connectionMode == ConnectionMode.USB,
+            flashing = flashingState.busy,
+        )
+        plan.notice?.let { logLine = it }
+        if (!plan.startConnection) return
+        java.util.logging.Logger.getLogger("org.opentrafficmap.citstogo.Plugin").info(
+            "Plug-in start: device=${device.deviceName} record=${plan.record} " +
+                "folder=${AutoRecording.folderLabel(autoRecordFolderUri)}",
+        )
+        selectedDeviceName = device.deviceName
+        requestUsbThenStart(autoStartRecord = plan.record)
+    }
+
+    private fun updateAutoConnectOnPlugin(enabled: Boolean) {
+        autoConnectOnPluginEnabled = enabled
+        getSharedPreferences(CitsBridgeService.PREFS, MODE_PRIVATE).edit()
+            .putBoolean(PREF_AUTO_CONNECT_ON_PLUGIN, enabled)
+            .apply()
+    }
+
+    private fun updateAutoRecordOnPlugin(enabled: Boolean) {
+        autoRecordOnPluginEnabled = enabled
+        getSharedPreferences(CitsBridgeService.PREFS, MODE_PRIVATE).edit()
+            .putBoolean(PREF_AUTO_RECORD_ON_PLUGIN, enabled)
+            .apply()
+    }
+
+    private fun chooseAutoRecordFolder() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+            .addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
+            )
+        autoRecordFolderLauncher.launch(intent)
+    }
+
+    /** The grant [handleDocumentResult] persisted outlives the app, so the bridge can name files in the folder. */
+    private fun storeAutoRecordFolder(uri: Uri) {
+        autoRecordFolderUri = uri.toString()
+        getSharedPreferences(CitsBridgeService.PREFS, MODE_PRIVATE).edit()
+            .putString(PREF_AUTO_RECORD_FOLDER, autoRecordFolderUri)
+            .apply()
+        logLine = "Auto PCAP folder set to ${AutoRecording.folderLabel(autoRecordFolderUri)}"
     }
 
     private fun setFlashingPageActive(active: Boolean) {
@@ -1098,10 +1191,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         flashingLog = FirmwareFlashLog.addProgress(flashingLog, flashingTimestamp(), key, level, message.trim())
     }
 
-    private fun startBridge() {
+    private fun startBridge(autoStartRecord: Boolean? = null) {
         saveSettings()
         val intent = Intent(this, CitsBridgeService::class.java)
-            .setAction(CitsBridgeService.ACTION_START)
+            .setAction(
+                if (autoStartRecord == null) CitsBridgeService.ACTION_START else CitsBridgeService.ACTION_AUTO_START,
+            )
             .putExtra(CitsBridgeService.EXTRA_CONNECTION_MODE, connectionMode.wireValue)
             .putExtra(CitsBridgeService.EXTRA_DEVICE_NAME, selectedDeviceName.orEmpty())
             .putExtra(CitsBridgeService.EXTRA_MQTT_URI, mqttUri)
@@ -1109,6 +1204,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             .putExtra(CitsBridgeService.EXTRA_NODE_ID, nodeId)
             .putExtra(CitsBridgeService.EXTRA_MQTT_MAX_QUEUE_LENGTH, parseMaxQueueLength(maxQueueLength))
             .putExtra(CitsBridgeService.EXTRA_MQTT_MAX_QUEUE_AGE_MS, parseMaxQueueAgeMs(maxQueueAgeSeconds))
+        if (autoStartRecord == true) {
+            intent.putExtra(CitsBridgeService.EXTRA_AUTO_PCAP_TREE_URI, autoRecordFolderUri.orEmpty())
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
     }
 
@@ -1578,6 +1676,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         private const val PREF_MAP_STATION_TIMEOUT_S = "map_station_timeout_s"
         private const val PREF_MAP_HISTORY_SHOWN = "map_history_shown"
         private const val PREF_MAP_HISTORY_DAYS = "map_history_days"
+        private const val PREF_AUTO_CONNECT_ON_PLUGIN = "auto_connect_on_plugin"
+        private const val PREF_AUTO_RECORD_ON_PLUGIN = "auto_record_on_plugin"
+        private const val PREF_AUTO_RECORD_FOLDER = "auto_record_folder_tree_uri"
         private const val PREF_VEHICLE_LENGTH_DM_PREFIX = "vehicle_length_dm_"
         private const val PREF_VEHICLE_WIDTH_DM_PREFIX = "vehicle_width_dm_"
         private const val PREF_VEHICLE_TRAILER_PREFIX = "vehicle_trailer_"

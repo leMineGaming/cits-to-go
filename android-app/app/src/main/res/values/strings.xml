@@ -81,6 +81,19 @@
     <string name="bluetooth_enrolling">Enrolling…</string>
     <string name="bluetooth_stop_first">Stop the active connection before enrollment.</string>
 
+    <!-- Receiver on plug-in -->
+    <string name="plugin_title">Receiver on plug-in</string>
+    <string name="plugin_description">Let a freshly connected receiver start the work on its own.</string>
+    <string name="plugin_auto_connect">Auto connect</string>
+    <string name="plugin_auto_connect_description">Start the capture as soon as the receiver is plugged in and the app opens because of it.</string>
+    <string name="plugin_auto_record">Auto PCAP recording</string>
+    <string name="plugin_auto_record_description">Write each plug-in to a new file in the folder below, without asking first. It ends with the capture.</string>
+    <string name="plugin_auto_record_needs_connect">Auto PCAP recording needs Auto connect. Turn it on above.</string>
+    <string name="plugin_folder_title">Recording folder</string>
+    <string name="plugin_folder_not_chosen">No folder chosen yet</string>
+    <string name="plugin_folder_button">Choose</string>
+    <string name="plugin_folder_missing">Without a folder there is nowhere to record. The connection still starts.</string>
+
     <!-- Debug Section -->
     <string name="debug_title">Debug menu</string>
     <string name="debug_description">Show firmware and transport diagnostics in the navigation drawer.</string>

@@ -222,22 +222,25 @@ private fun CamPrivacyPanel(
                         .weight(1f)
                         .padding(start = 12.dp),
                 ) {
+                    // The switch cannot be moved while a broadcast runs, so the words fade with it.
+                    val rowAlpha = if (status.camEnabled) DisabledContentAlpha else 1f
                     Text(
                         "Address randomization",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color(ContextCompat.getColor(context, R.color.on_surface)),
+                        color = Color(ContextCompat.getColor(context, R.color.on_surface)).copy(alpha = rowAlpha),
                     )
                     Text(
                         "Broadcast with a new random MAC address, station ID, and sequence counters",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(ContextCompat.getColor(context, R.color.on_surface_variant)),
+                        color = Color(ContextCompat.getColor(context, R.color.on_surface_variant)).copy(alpha = rowAlpha),
                     )
                 }
                 Switch(
                     checked = randomizationEnabled,
                     onCheckedChange = onRandomizationEnabledChange,
                     enabled = !status.camEnabled,
+                    colors = citsSwitchColors(context),
                 )
             }
 

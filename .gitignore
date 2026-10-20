@@ -3,6 +3,8 @@
 ### Custom ###
 *.pcap
 .opencode
+# Local agent skills (Agent Skills / Pi project skills, see .agents/skills/)
+/.agents/
 
 ### Android ###
 # Gradle files

@@ -48,6 +48,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SwitchColors
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -62,6 +64,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -111,6 +114,49 @@ private fun confettiColors(context: android.content.Context): List<Color> = list
     Color(ContextCompat.getColor(context, R.color.confetti_5)),
     Color(ContextCompat.getColor(context, R.color.confetti_6)),
 )
+
+/** Material's own fade for content a control cannot be used with, applied to the whole row. */
+internal const val DisabledContentAlpha = 0.38f
+
+/**
+ * The switch colours of this app's cards.
+ *
+ * Material pairs a switch that is off but usable with a track of `surfaceContainerHighest` and a
+ * handle of `outline` — in the stock scheme 3.5:1 apart, deliberately, because the handle is what
+ * tells an empty switch from a dead one. This palette's `outline` is `border`, a hairline tone, so
+ * the shipped default leaves handle and track 1.2:1 apart: the handle vanishes into the track and the
+ * whole control reads as one grey slab, i.e. as disabled. The off states therefore take the track one
+ * step down the container ramp and the handle from [R.color.switch_off_ink], back at about 3:1 — the
+ * Material figure and WCAG 1.4.11's floor for a user interface component.
+ *
+ * The disabled states are struck from the palette's own `disabled` ink over [R.color.card], because
+ * Material composites them over `colorScheme.surface` while every switch here sits on a card, and its
+ * `onSurface` fade came out *darker* than an ordinary off handle — off and disabled really did read as
+ * swapped. A dead switch now fades uniformly, one that is dead but on keeps a trace of the brand
+ * colour, so its handle position still says something. Only `checked` while enabled is left to
+ * Material, which finds the surface container roles in [CitsTheme].
+ */
+@Composable
+internal fun citsSwitchColors(context: android.content.Context): SwitchColors {
+    fun color(resId: Int) = Color(ContextCompat.getColor(context, resId))
+    val card = color(R.color.card)
+    val disabled = color(R.color.disabled)
+    val offInk = color(R.color.switch_off_ink)
+    val fadedHandle = disabled.copy(alpha = 0.35f).compositeOver(card)
+    return SwitchDefaults.colors(
+        uncheckedTrackColor = color(R.color.surface_container_high),
+        uncheckedThumbColor = offInk,
+        // Material rings the empty track in the handle's own tone; half that is enough here and keeps
+        // the control light, since the handle now carries the contrast on its own.
+        uncheckedBorderColor = offInk.copy(alpha = 0.55f).compositeOver(card),
+        disabledCheckedTrackColor = color(R.color.primary).copy(alpha = 0.20f).compositeOver(card),
+        disabledCheckedThumbColor = fadedHandle,
+        disabledCheckedBorderColor = Color.Transparent,
+        disabledUncheckedTrackColor = disabled.copy(alpha = 0.25f).compositeOver(card),
+        disabledUncheckedThumbColor = fadedHandle,
+        disabledUncheckedBorderColor = disabled.copy(alpha = 0.25f).compositeOver(card),
+    )
+}
 
 @Composable
 fun AppHeader(title: String, onOpenMenu: () -> Unit, subtitle: String? = null, modifier: Modifier = Modifier) {

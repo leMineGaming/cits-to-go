@@ -43,6 +43,7 @@ Currently implemented goals:
 - Blink the onboard USER LED when messages are received.
 - Stream captured packets to an Android phone over USB-C.
 - Save captures as PCAP files on Android.
+- Start the capture, and a PCAP recording, on its own when the receiver is plugged in (opt-in, see [docs/AUTO_PLUGIN.md](docs/AUTO_PLUGIN.md)).
 - Forward packets to MQTT.
 - Keep compatibility with the OpenTrafficMap-style MQTT packet format.
 - Send arbitrary raw 802.11 packets from Android to the ESP32-C5.

@@ -28,6 +28,27 @@
     <color name="on_surface">#0F172A</color>
     <color name="on_surface_variant">#64748B</color>
 
+    <!--
+        The elevation ramp MaterialTheme reads as surfaceContainer*. Components take their resting
+        and faded states from these roles — a switch's off track is surfaceContainerHighest — and
+        lightColorScheme() does not derive them from surface, so leaving them out hands the component
+        Android's stock neutral grey. Ordered from the flattest tone down, anchored on the tones the
+        rest of the palette already uses: card, between surface and card, surface_variant, divider.
+    -->
+    <color name="surface_container_lowest">#FFFFFF</color>
+    <color name="surface_container_low">#FAFCFC</color>
+    <color name="surface_container">#F5F8F9</color>
+    <color name="surface_container_high">#EDF2F4</color>
+    <color name="surface_container_highest">#E4EBEF</color>
+
+    <!--
+        The handle of a switch that is off but usable. Material pairs that state with `outline`, a
+        mid tone about 3.5:1 against its track, because the handle is what tells an empty switch apart
+        from a dead one; this app's `border` is a hairline tone and would sit at 1.2:1, which reads as
+        a disabled control. `status_indicator_inactive` is already the palette's "idle but alive" grey.
+    -->
+    <color name="switch_off_ink">#78909C</color>
+
     <!-- Error Colors -->
     <color name="error">#B91C1C</color>
     <color name="error_container">#FDE8E8</color>

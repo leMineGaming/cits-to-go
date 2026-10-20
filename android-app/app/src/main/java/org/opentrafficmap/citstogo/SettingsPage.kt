@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.rounded.Bluetooth
 import androidx.compose.material.icons.rounded.BrightnessAuto
 import androidx.compose.material.icons.rounded.BrightnessHigh
 import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.History
@@ -34,6 +36,7 @@ import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.Usb
 import androidx.compose.material.icons.rounded.CellTower
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -58,6 +61,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -98,6 +102,12 @@ fun SettingsPage(
     onStationDiscoveryNotificationChange: (Boolean) -> Unit,
     appUpdateNotificationEnabled: Boolean,
     onAppUpdateNotificationChange: (Boolean) -> Unit,
+    autoConnectOnPluginEnabled: Boolean,
+    onAutoConnectOnPluginChange: (Boolean) -> Unit,
+    autoRecordOnPluginEnabled: Boolean,
+    onAutoRecordOnPluginChange: (Boolean) -> Unit,
+    autoRecordFolderLabel: String,
+    onChooseAutoRecordFolder: () -> Unit,
     onEnrollBluetooth: () -> Unit,
     onRevokeTxApproval: () -> Unit,
     vehicleDimensions: Map<SremProfile, VehicleDimensions>,
@@ -168,6 +178,15 @@ fun SettingsPage(
             bluetoothEnrollmentMessage = bluetoothEnrollmentMessage,
             bluetoothEnrollmentError = bluetoothEnrollmentError,
             onEnrollBluetooth = onEnrollBluetooth,
+        )
+
+        ReceiverOnPluginCard(
+            autoConnectEnabled = autoConnectOnPluginEnabled,
+            onAutoConnectEnabledChange = onAutoConnectOnPluginChange,
+            autoRecordEnabled = autoRecordOnPluginEnabled,
+            onAutoRecordEnabledChange = onAutoRecordOnPluginChange,
+            autoRecordFolderLabel = autoRecordFolderLabel,
+            onChooseAutoRecordFolder = onChooseAutoRecordFolder,
         )
 
         TxApprovalCard(
@@ -313,6 +332,7 @@ private fun MqttCard(
                 Switch(
                     checked = mqttEnabled,
                     onCheckedChange = onMqttEnabledChange,
+                    colors = citsSwitchColors(context),
                 )
             }
 
@@ -862,6 +882,159 @@ private fun BluetoothCard(
 }
 
 @Composable
+private fun ReceiverOnPluginCard(
+    autoConnectEnabled: Boolean,
+    onAutoConnectEnabledChange: (Boolean) -> Unit,
+    autoRecordEnabled: Boolean,
+    onAutoRecordEnabledChange: (Boolean) -> Unit,
+    autoRecordFolderLabel: String,
+    onChooseAutoRecordFolder: () -> Unit,
+) {
+    val context = LocalContext.current
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(ContextCompat.getColor(context, R.color.card)),
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(ContextCompat.getColor(context, R.color.secondary_container))),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Usb,
+                        contentDescription = null,
+                        tint = Color(ContextCompat.getColor(context, R.color.secondary)),
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 12.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.plugin_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(ContextCompat.getColor(context, R.color.on_surface)),
+                    )
+                    Text(
+                        stringResource(R.string.plugin_description),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(ContextCompat.getColor(context, R.color.on_surface_variant)),
+                    )
+                }
+            }
+
+            HorizontalDivider(
+                color = Color(ContextCompat.getColor(context, R.color.divider)),
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+
+            SettingToggleRow(
+                icon = Icons.Rounded.Link,
+                title = stringResource(R.string.plugin_auto_connect),
+                description = stringResource(R.string.plugin_auto_connect_description),
+                checked = autoConnectEnabled,
+                onCheckedChange = onAutoConnectEnabledChange,
+                tag = "auto_connect_switch",
+            )
+
+            // Recording rides on the connection, so without it the switch would only promise an empty file.
+            SettingToggleRow(
+                icon = Icons.Rounded.Storage,
+                title = stringResource(R.string.plugin_auto_record),
+                description = stringResource(R.string.plugin_auto_record_description),
+                checked = autoRecordEnabled,
+                onCheckedChange = onAutoRecordEnabledChange,
+                enabled = autoConnectEnabled,
+                tag = "auto_record_switch",
+            )
+
+            if (autoRecordEnabled && !autoConnectEnabled) {
+                StatusMessageRow(
+                    message = stringResource(R.string.plugin_auto_record_needs_connect),
+                    isError = false,
+                    icon = Icons.Rounded.Info,
+                )
+            }
+
+            if (autoRecordEnabled) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.FolderOpen,
+                        contentDescription = null,
+                        tint = Color(ContextCompat.getColor(context, R.color.on_surface_variant)),
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 12.dp),
+                    ) {
+                        Text(
+                            stringResource(R.string.plugin_folder_title),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(ContextCompat.getColor(context, R.color.on_surface)),
+                        )
+                        Text(
+                            autoRecordFolderLabel.ifBlank {
+                                stringResource(R.string.plugin_folder_not_chosen)
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(ContextCompat.getColor(context, R.color.on_surface_variant)),
+                        )
+                    }
+                    Button(
+                        onClick = onChooseAutoRecordFolder,
+                        modifier = Modifier.heightIn(min = 48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(ContextCompat.getColor(context, R.color.primary_container)),
+                            contentColor = Color(ContextCompat.getColor(context, R.color.primary)),
+                        ),
+                    ) {
+                        Text(
+                            stringResource(R.string.plugin_folder_button),
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+
+                if (autoRecordFolderLabel.isBlank()) {
+                    StatusMessageRow(
+                        message = stringResource(R.string.plugin_folder_missing),
+                        isError = true,
+                        icon = Icons.Rounded.Info,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun AppearanceCard(
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
@@ -1081,8 +1254,13 @@ private fun SettingToggleRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     icon: ImageVector? = null,
+    enabled: Boolean = true,
+    tag: String? = null,
 ) {
     val context = LocalContext.current
+    // A dead row fades as a whole, the way Material fades a control: the switch alone fading left the
+    // words at full strength next to it, so only the difference between two greys said it was off limits.
+    val contentAlpha = if (enabled) 1f else DisabledContentAlpha
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1092,7 +1270,7 @@ private fun SettingToggleRow(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = Color(ContextCompat.getColor(context, R.color.on_surface_variant)),
+                tint = Color(ContextCompat.getColor(context, R.color.on_surface_variant)).copy(alpha = contentAlpha),
                 modifier = Modifier.size(20.dp),
             )
             Spacer(modifier = Modifier.size(12.dp))
@@ -1104,17 +1282,20 @@ private fun SettingToggleRow(
                 title,
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
-                color = Color(ContextCompat.getColor(context, R.color.on_surface)),
+                color = Color(ContextCompat.getColor(context, R.color.on_surface)).copy(alpha = contentAlpha),
             )
             Text(
                 description,
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(ContextCompat.getColor(context, R.color.on_surface_variant)),
+                color = Color(ContextCompat.getColor(context, R.color.on_surface_variant)).copy(alpha = contentAlpha),
             )
         }
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
+            enabled = enabled,
+            colors = citsSwitchColors(context),
+            modifier = tag?.let { Modifier.testTag(it) } ?: Modifier,
         )
     }
 }
@@ -1287,6 +1468,7 @@ private fun DebugCard(
                 Switch(
                     checked = debugMenuEnabled,
                     onCheckedChange = onDebugMenuEnabledChange,
+                    colors = citsSwitchColors(context),
                 )
             }
         }

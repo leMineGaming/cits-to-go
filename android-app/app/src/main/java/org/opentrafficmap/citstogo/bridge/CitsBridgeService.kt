@@ -24,6 +24,7 @@ import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import android.net.Uri
+import android.provider.DocumentsContract
 import org.opentrafficmap.citstogo.BuildConfig
 import org.opentrafficmap.citstogo.MainActivity
 import org.opentrafficmap.citstogo.cam.CamIdentity
@@ -92,6 +93,15 @@ class CitsBridgeService : Service() {
     private var selectedDeviceName: String? = null
     /** Device the service has already shown the USB permission prompt for in this connection. */
     private var permissionRequestedDeviceName: String? = null
+    /** Whether the running connection came from a plug-in rather than from the Start button. */
+    @Volatile private var autoStartedConnection = false
+    /** Ends an automatic capture whose receiver went away for good. See [scheduleAutoUnplugStop]. */
+    private val autoUnplugStop = Runnable {
+        if (!autoStartedConnection || serial != null) return@Runnable
+        publishStatus(AutoRecording.UNPLUGGED_NOTICE)
+        stopBridge()
+        stopSelf()
+    }
     private var mqttUri = ""
     private var nodeId = ""
     private var mqttMaxQueueLength = DEFAULT_MQTT_MAX_QUEUE_LENGTH
@@ -155,6 +165,8 @@ class CitsBridgeService : Service() {
             when (intent.action) {
                 UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
                     logger.info("USB device attached")
+                    // Back within the grace period of an automatic capture, so it keeps running.
+                    handler.removeCallbacks(autoUnplugStop)
                     val device = intent.parcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)
                     if (device != null) {
                         handleDiscoveredDevice(device)
@@ -170,7 +182,10 @@ class CitsBridgeService : Service() {
                     if (device == null || device.deviceName == selectedDeviceName) {
                         permissionRequestedDeviceName = null
                         closeSerial("USB device detached")
-                        if (connectionWanted && connectionMode == ConnectionMode.USB) scheduleConnectionReconnect(2_000)
+                        if (connectionWanted && connectionMode == ConnectionMode.USB) {
+                            scheduleConnectionReconnect(2_000)
+                            scheduleAutoUnplugStop()
+                        }
                     }
                 }
                 ACTION_USB_PERMISSION -> {
@@ -315,6 +330,16 @@ class CitsBridgeService : Service() {
                 intent.getLongExtra(EXTRA_MQTT_MAX_QUEUE_AGE_MS, mqttMaxQueueAgeMs),
                 intent.getBooleanExtra(EXTRA_MQTT_ENABLED, mqttEnabledByUser),
             )
+            ACTION_AUTO_START -> autoStartBridge(
+                ConnectionMode.fromWireValue(intent.getStringExtra(EXTRA_CONNECTION_MODE)),
+                intent.getStringExtra(EXTRA_DEVICE_NAME),
+                intent.getStringExtra(EXTRA_MQTT_URI).orEmpty(),
+                intent.getStringExtra(EXTRA_NODE_ID).orEmpty(),
+                intent.getIntExtra(EXTRA_MQTT_MAX_QUEUE_LENGTH, mqttMaxQueueLength),
+                intent.getLongExtra(EXTRA_MQTT_MAX_QUEUE_AGE_MS, mqttMaxQueueAgeMs),
+                intent.getBooleanExtra(EXTRA_MQTT_ENABLED, mqttEnabledByUser),
+                intent.getStringExtra(EXTRA_AUTO_PCAP_TREE_URI).orEmpty(),
+            )
             ACTION_STOP -> {
                 stopBridge()
                 stopSelf()
@@ -354,6 +379,39 @@ class CitsBridgeService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /**
+     * Starts the capture a plug-in asked for. The service, not the activity, decides: it is the only
+     * one that still knows a running capture or a replay when the activity was just created and its
+     * status is still the default. A start that would disturb either is reported and dropped, leaving
+     * what already runs untouched.
+     */
+    private fun autoStartBridge(
+        requestedConnectionMode: ConnectionMode,
+        deviceName: String?,
+        requestedMqttUri: String,
+        requestedNodeId: String,
+        requestedMaxQueueLength: Int,
+        requestedMaxQueueAgeMs: Long,
+        requestedMqttEnabledByUser: Boolean,
+        autoPcapTreeUri: String,
+    ) {
+        if (connectionWanted || replayWanted) {
+            publishStatus(AutoRecording.BUSY_NOTICE)
+            return
+        }
+        startBridge(
+            requestedConnectionMode,
+            deviceName,
+            requestedMqttUri,
+            requestedNodeId,
+            requestedMaxQueueLength,
+            requestedMaxQueueAgeMs,
+            requestedMqttEnabledByUser,
+            autoStarted = true,
+        )
+        if (AutoRecording.isTreeUri(autoPcapTreeUri)) startAutoPcap(autoPcapTreeUri)
+    }
+
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         stopLocationUpdates()
@@ -372,11 +430,14 @@ class CitsBridgeService : Service() {
         requestedMaxQueueLength: Int,
         requestedMaxQueueAgeMs: Long,
         requestedMqttEnabledByUser: Boolean,
+        autoStarted: Boolean = false,
     ) {
         stopReplay(log = false)
         liveMapStore.clear()
         startElapsedMs = SystemClock.elapsedRealtime()
         connectionMode = requestedConnectionMode
+        autoStartedConnection = autoStarted
+        handler.removeCallbacks(autoUnplugStop)
         selectedDeviceName = deviceName?.takeIf { it.isNotBlank() } ?: selectedDeviceName
         permissionRequestedDeviceName = null
         if (requestedNodeId.isNotBlank()) {
@@ -433,6 +494,8 @@ class CitsBridgeService : Service() {
 
     private fun stopBridge() {
         connectionWanted = false
+        autoStartedConnection = false
+        handler.removeCallbacks(autoUnplugStop)
         mqttEnabled = false
         configureCam(
             false,
@@ -480,6 +543,7 @@ class CitsBridgeService : Service() {
         try {
             val opened = UsbCdcSerial(usbManager, device).also { it.open() }
             serial = opened
+            handler.removeCallbacks(autoUnplugStop)
             promoteConnectedDeviceForeground()
             status = status.copy(running = true, usbState = "Connected: ${opened.description()}")
             val reader = SerialPacketReader(::handlePacket, ::handleTxResult, ::handleProtocolError, ::handleFirmwareStatistics, diagnosticSource = "USB")
@@ -1177,6 +1241,32 @@ class CitsBridgeService : Service() {
         return true
     }
 
+    /**
+     * Names a file in the folder chosen on the Settings page and records into it. The document is created
+     * here and not in the activity, so a plug-in that the service refuses leaves no empty file behind.
+     * The storage provider asks for a MIME type it knows; the PCAP one is tried first, and a provider
+     * that turns it down gets the unspecific one, which every provider accepts.
+     */
+    private fun startAutoPcap(treeUriString: String) {
+        val treeUri = Uri.parse(treeUriString)
+        val fileName = AutoRecording.fileName(System.currentTimeMillis())
+        val document = createInTree(treeUri, fileName, AutoRecording.MIME_TYPE)
+            ?: createInTree(treeUri, fileName, "*/*")
+        if (document == null) {
+            status = status.copy(
+                lastError = "Auto PCAP could not be created in ${AutoRecording.folderLabel(treeUriString)}",
+            )
+            publishStatus(status.lastError)
+            return
+        }
+        startPcap(document.toString())
+    }
+
+    private fun createInTree(treeUri: Uri, displayName: String, mimeType: String): Uri? =
+        runCatching { DocumentsContract.createDocument(contentResolver, treeUri, mimeType, displayName) }
+            .onFailure { logger.log(java.util.logging.Level.SEVERE, "Auto PCAP create failed", it) }
+            .getOrNull()
+
     private fun startPcap(uriString: String) {
         if (uriString.isBlank()) {
             status = status.copy(lastError = "PCAP destination missing")
@@ -1404,6 +1494,20 @@ class CitsBridgeService : Service() {
         if (!connectionWanted) return
         logger.fine("$connectionMode reconnect scheduled in ${delayMs}ms")
         handler.postDelayed({ if (connectionWanted && serial == null) openConnection() }, delayMs)
+    }
+
+    /**
+     * Puts an automatic capture on a clock once its receiver has been pulled out. Such a capture belongs
+     * to that receiver: with it gone there is nothing left to record, and a foreground service waiting
+     * forever for a device the user took along keeps the phone awake and drains its battery. A
+     * connection started by hand keeps retrying as it always did — the user who pressed Start knows it
+     * is meant to come back. The grace period covers a firmware reset or a cable that re-enumerates,
+     * which would otherwise end a recording that was going well.
+     */
+    private fun scheduleAutoUnplugStop() {
+        if (!autoStartedConnection) return
+        handler.removeCallbacks(autoUnplugStop)
+        handler.postDelayed(autoUnplugStop, AUTO_UNPLUG_STOP_MS)
     }
 
     private fun scheduleMqttReconnect() {
@@ -1828,6 +1932,7 @@ class CitsBridgeService : Service() {
 
     companion object {
         const val ACTION_START = "org.opentrafficmap.citstogo.action.START"
+        const val ACTION_AUTO_START = "org.opentrafficmap.citstogo.action.AUTO_START"
         const val ACTION_STOP = "org.opentrafficmap.citstogo.action.STOP"
         const val ACTION_START_PCAP = "org.opentrafficmap.citstogo.action.START_PCAP"
         const val ACTION_STOP_PCAP = "org.opentrafficmap.citstogo.action.STOP_PCAP"
@@ -1850,6 +1955,8 @@ class CitsBridgeService : Service() {
         const val EXTRA_MQTT_MAX_QUEUE_LENGTH = "mqttMaxQueueLength"
         const val EXTRA_MQTT_MAX_QUEUE_AGE_MS = "mqttMaxQueueAgeMs"
         const val EXTRA_PCAP_URI = "pcapUri"
+        /** Folder of a tree URI an automatic recording names its file in; blank when it records nowhere. */
+        const val EXTRA_AUTO_PCAP_TREE_URI = "autoPcapTreeUri"
         const val EXTRA_RUNNING = "running"
         const val EXTRA_USB_STATE = "usbState"
         const val EXTRA_MQTT_STATE = "mqttState"
@@ -1960,6 +2067,8 @@ class CitsBridgeService : Service() {
         private const val USB_READ_TIMEOUT_MS = 5_000
         /** Grace for the firmware's 1 Hz statistics stream before the pipe is declared dead. */
         private const val USB_SILENCE_TIMEOUT_MS = 15_000
+        /** How long an automatic capture waits for a receiver that was pulled out before it ends. */
+        private const val AUTO_UNPLUG_STOP_MS = 10_000L
         private const val BLE_WRITE_TIMEOUT_MS = 5_000
         private const val USB_WRITE_TIMEOUT_MS = 2_000
         /** Distinct from the activity's permission prompt codes 20..22. */
