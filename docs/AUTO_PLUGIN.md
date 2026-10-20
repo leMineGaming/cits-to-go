@@ -50,12 +50,18 @@ creates a file, because the file is named inside the service after the refusal i
 
 ## When an automatic capture ends
 
-**Stop** ends it like any other capture, and that closes the file. On top of that, a capture the
+**Stop** ends it like any other capture, and that closes the file. Removing the app from the
+recent-apps list ends it the same way: the service is declared `stopWithTask`, so closing the app is
+a request to stop everything, and the notification goes with it. On top of that, a capture the
 plug-in started belongs to the receiver that asked for it: when the receiver stays away for ten
 seconds the bridge stops the capture and itself, instead of waiting as a foreground service for a
 device the user took along. The grace period covers a firmware reset or a cable that re-enumerates,
 which would otherwise end a recording that was going well. A capture started by hand keeps retrying
 after a replug exactly as it always did.
+
+A capture that ends this way is not restarted. The service answers `START_NOT_STICKY`, because a
+redelivered start would not have the USB handle or the settings the start intent carried and could
+only put a notification up over work nobody is doing.
 
 ## Architecture
 

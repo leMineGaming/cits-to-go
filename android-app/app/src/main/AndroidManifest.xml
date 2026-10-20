@@ -43,9 +43,20 @@
                 android:resource="@xml/usb_device_filter" />
         </activity>
 
+        <!--
+            stopWithTask is what makes "I closed the app" mean "the capture ended". A foreground
+            service outlives its task by default, so without this the notification and the wake lock
+            survive a swipe away. The framework stops the service itself here
+            (ActiveServices.cleanUpServices -> stopServiceLocked), which reaches onDestroy, where the
+            bridge tears all of it down; and it deliberately does not kill a process that holds a
+            foreground service (ActivityTaskSupervisor.cleanUpRemovedTaskLocked), so onDestroy is not
+            cut short. Setting the flag also means onTaskRemoved is never delivered, which is fine:
+            the override exists only for platforms that deviate from that.
+        -->
         <service
             android:name=".bridge.CitsBridgeService"
             android:exported="false"
+            android:stopWithTask="true"
             android:foregroundServiceType="connectedDevice|dataSync|location" />
     </application>
 </manifest>

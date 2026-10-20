@@ -108,6 +108,19 @@ broadcast QoS 802.11 data frame. See [CAM implementation notes](../docs/CAM.md).
 
 The bridge runs as a foreground service with a partial wakelock while capture is active, so USB capture and MQTT forwarding continue while the phone is locked. MQTT publishes are retried through an app-private disk spool when the broker is offline.
 
+### Closing the app ends the capture
+
+Locking the phone, or leaving the app running in the background, keeps a capture going: that is what
+the service and the wakelock are for, and a long recording should survive putting the phone in a
+pocket. **Removing the app does not.** Swiping *C-ITS to go* out of the recent-apps list, or pressing
+back until the app has gone, stops the bridge the same way **Stop** does — the notification goes away,
+the MQTT session closes, the USB receiver is released, the wakelock is dropped, and a CAM broadcast
+stops with them. Nothing is left running and nothing is left in the notification shade.
+
+That last point matters for a phone that broadcasts CAMs on its own: the broadcast belongs to the app,
+so dismissing the app ends it. Leave the app in the background rather than removing it if a broadcast
+is meant to keep going.
+
 PCAP output is classic libpcap with `DLT_IEEE802_11` link type and raw 802.11 frame bytes. It includes received packets and packets acknowledged as successfully transmitted by the firmware.
 
 ### Map

@@ -80,12 +80,12 @@ class CitsBridgeService : Service() {
     private var pcapWriter: PcapWriter? = null
     private var replayThread: Thread? = null
     @Volatile private var replayWanted = false
-    private var mqttClient = MiniMqttClient()
+    private val mqttClient = MiniMqttClient()
     private var wakeLock: PowerManager.WakeLock? = null
 
     @Volatile private var connectionWanted = false
     @Volatile private var connectionMode = ConnectionMode.USB
-    private var mqttEnabled = false
+    @Volatile private var mqttEnabled = false
     private var mqttEnabledByUser = true
     private var mqttConnecting = AtomicBoolean(false)
     private var mqttFlushing = AtomicBoolean(false)
@@ -99,8 +99,7 @@ class CitsBridgeService : Service() {
     private val autoUnplugStop = Runnable {
         if (!autoStartedConnection || serial != null) return@Runnable
         publishStatus(AutoRecording.UNPLUGGED_NOTICE)
-        stopBridge()
-        stopSelf()
+        stopEverything()
     }
     private var mqttUri = ""
     private var nodeId = ""
@@ -152,6 +151,8 @@ class CitsBridgeService : Service() {
     private var txFailed = 0L
     private var camSent = 0L
     private var nextStationNotificationId = STATION_NOTIFICATION_ID_BASE
+    /** Ids actually posted, so teardown cancels these rather than guessing at a range. */
+    private val stationNotificationIds = mutableListOf<Int>()
     private val discoveredMacAddresses = mutableSetOf<String>()
 
     /** Per-station discovery detail, persisted so the table survives restarts. */
@@ -297,6 +298,7 @@ class CitsBridgeService : Service() {
         usbManager = getSystemService(USB_SERVICE) as UsbManager
         locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
         spool = MqttSpool(this)
+        mqttClient.onConnectionLost = { reason -> reportMqttLost(reason) }
         nodeId = loadOrCreateNodeId()
         baseCamIdentity = loadOrCreateCamIdentity()
         camIdentity = baseCamIdentity
@@ -340,10 +342,7 @@ class CitsBridgeService : Service() {
                 intent.getBooleanExtra(EXTRA_MQTT_ENABLED, mqttEnabledByUser),
                 intent.getStringExtra(EXTRA_AUTO_PCAP_TREE_URI).orEmpty(),
             )
-            ACTION_STOP -> {
-                stopBridge()
-                stopSelf()
-            }
+            ACTION_STOP -> stopEverything()
             ACTION_SET_MQTT_ENABLED -> setMqttEnabledByUser(
                 intent.getBooleanExtra(EXTRA_MQTT_ENABLED, true),
             )
@@ -374,10 +373,34 @@ class CitsBridgeService : Service() {
             ACTION_REVOKE_TX_APPROVAL -> revokeTxApproval()
             else -> publishStatus(null)
         }
-        return START_STICKY
+        // A command that started nothing may not leave a foreground service standing. Every control
+        // intent arrives through startService, which creates the service when it is gone, and it goes
+        // to the foreground as soon as it exists, so nothing above has any other reason to end it.
+        val recording = synchronized(pcapLock) { pcapWriter != null }
+        if (ServiceLifecycle.hasNothingLeftToRun(connectionWanted, replayWanted, camEnabled, recording)) stopEverything()
+        // Nothing survives the process here, and nothing should be asked to. A capture needs the USB
+        // handle and a replay needs its document URI, both of which only the start intent carries, so
+        // a redelivered start could do nothing but show a notification over work nobody is doing. That
+        // resurrection is what made a stopped bridge look like a bridge that never stopped.
+        return START_NOT_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    /**
+     * Ends the capture when the user throws the app away.
+     *
+     * The manifest declares `stopWithTask`, and on a stock platform that is what handles a swipe out
+     * of recents: the framework stops the service and `onDestroy` does the teardown. Stock AOSP does
+     * not deliver this callback once the flag is set — `cleanUpServices` either stops the service or
+     * sends `onTaskRemoved`, never both. It is kept because a task removed behind a customised
+     * launcher or vendor firmware is precisely the case where the flag is the one thing that silently
+     * stops being honoured, and this costs nothing to have.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        logger.info("App task removed; stopping the bridge")
+        stopEverything()
+    }
 
     /**
      * Starts the capture a plug-in asked for. The service, not the activity, decides: it is the only
@@ -419,6 +442,10 @@ class CitsBridgeService : Service() {
         stopBridge()
         persistStations()
         runCatching { spool.close() }
+        // Repeated rather than trusted to stopEverything: this is also the path a task removal takes
+        // on a platform that acts on the manifest flag instead of calling onTaskRemoved.
+        releaseWakeLock()
+        clearForegroundNotification()
         super.onDestroy()
     }
 
@@ -452,7 +479,13 @@ class CitsBridgeService : Service() {
             .apply()
         applyMqttEnablement()
         connectionWanted = true
-        acquireWakeLock()
+        updateWakeLock()
+        // The foreground claim belongs to the work, not to the moment the service object happened to
+        // be created. Teardown now drops it explicitly, so a start that arrives while an earlier stop
+        // is still being torn down would otherwise run a capture with no notification and none of the
+        // priority one.
+        startInForeground("Starting")
+        ensureMaintenanceRunning()
         openConnection()
         publishStatus(if (mqttEnabled) "Capture started" else "Capture started without MQTT")
     }
@@ -488,11 +521,21 @@ class CitsBridgeService : Service() {
             ensureMqttConnected()
             return
         }
-        if (wasEnabled) runCatching { mqttClient.close() }
+        if (wasEnabled) closeMqttClient()
         status = status.copy(mqttState = "Disabled")
     }
 
     private fun stopBridge() {
+        // The recording goes first and unconditionally. A PCAP file is independent of the capture, the
+        // replay and the broadcast, so the check below would be entitled to decide there is nothing to
+        // do while the file handle stayed open and its global header unflushed — a stop that leaves a
+        // half-written file behind is not a stop.
+        stopPcap(log = false)
+        // The same rule the command handler uses, read the other way round: where there is nothing
+        // running there is also nothing to stop, and saying so twice would be worse than silent — a
+        // CAM broadcasting on its own, with no capture behind it, is stopped here and nowhere else.
+        // The recording is already closed above, so it is passed as spent rather than looked up.
+        if (ServiceLifecycle.hasNothingLeftToRun(connectionWanted, replayWanted, camEnabled, false)) return
         connectionWanted = false
         autoStartedConnection = false
         handler.removeCallbacks(autoUnplugStop)
@@ -506,10 +549,12 @@ class CitsBridgeService : Service() {
             camVehicleDimensions,
         )
         closeSerial("Connection stopped")
-        runCatching { mqttClient.close() }
-        stopPcap(log = false)
         stopReplay(log = false)
-        releaseWakeLock()
+        // The wake lock goes before the broker session and the timers go before both: a DISCONNECT to
+        // a peer that stopped answering holds until the kernel tires of retransmitting, and a phone the
+        // user has just stopped has no business staying awake behind it.
+        updateWakeLock()
+        closeMqttClient()
         status = status.copy(running = false, usbState = "Stopped", mqttState = "Disabled")
         publishStatus("Capture stopped")
     }
@@ -782,11 +827,13 @@ class CitsBridgeService : Service() {
         startElapsedMs = SystemClock.elapsedRealtime()
         if (requestedNodeId.isNotBlank()) nodeId = requestedNodeId.trim()
         mqttEnabled = false
-        runCatching { mqttClient.close() }
+        closeMqttClient()
         replayPackets = 0L
         liveMapStore.clear()
         replayWanted = true
-        acquireWakeLock()
+        updateWakeLock()
+        startInForeground("Replaying PCAP")
+        ensureMaintenanceRunning()
         status = status.copy(running = true, usbState = "Replaying PCAP", replaying = true, replayPackets = 0, lastError = "")
         val uri = Uri.parse(uriString)
         val thread = Thread({
@@ -834,7 +881,7 @@ class CitsBridgeService : Service() {
     private fun finishReplay(message: String, error: Boolean = false) {
         replayWanted = false
         replayThread = null
-        releaseWakeLock()
+        updateWakeLock()
         status = status.copy(
             running = false,
             usbState = if (error) "Replay error" else "Replay complete",
@@ -851,7 +898,7 @@ class CitsBridgeService : Service() {
         replayThread?.interrupt()
         replayThread = null
         if (wasRunning) {
-            releaseWakeLock()
+            updateWakeLock()
             status = status.copy(running = false, usbState = "Stopped", replaying = false, replayPackets = replayPackets)
             if (log) publishStatus("PCAP replay stopped")
         }
@@ -1585,8 +1632,11 @@ class CitsBridgeService : Service() {
             mqttState = when {
                 !mqttEnabled -> "Disabled"
                 mqttClient.isConnected() -> "Connected"
-                status.mqttState.isBlank() -> "Offline, spooling"
-                else -> status.mqttState
+                // Only a handshake or a scheduled retry is worth repeating. Anything else the state
+                // carried before — a "Connected" from a session that has since died above all — is a
+                // claim the client no longer makes, so it is dropped rather than kept on screen.
+                status.mqttState == "Connecting" || status.mqttState == "Reconnecting" -> status.mqttState
+                else -> "Offline, spooling"
             },
         )
         val intent = Intent(ACTION_STATUS).setPackage(packageName)
@@ -1676,12 +1726,14 @@ class CitsBridgeService : Service() {
     }
 
     private fun sendStationDiscoveryNotification(macAddress: String) {
+        // A bridge that has stopped announces nothing, even though its read thread may still be winding
+        // down and post one after the teardown has already cleared the shade.
+        if (!connectionWanted && !replayWanted) return
         if (!getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_NOTIFY_STATION_DISCOVERY, true)) return
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(
-            nextStationNotificationId++,
-            buildStationDiscoveryNotification(macAddress),
-        )
+        val id = nextStationNotificationId++
+        stationNotificationIds += id
+        manager.notify(id, buildStationDiscoveryNotification(macAddress))
     }
 
     private fun startInForeground(content: String) {
@@ -1783,6 +1835,114 @@ class CitsBridgeService : Service() {
         )
         stationDiscoveryChannel.description = "Alerts when a new C-ITS station is discovered."
         manager.createNotificationChannel(stationDiscoveryChannel)
+    }
+
+    /**
+     * Ends everything the bridge can own and leaves no trace of it.
+     *
+     * The Stop action, a task the user swiped away, a receiver unplugged for good, and a command that
+     * started no work all funnel here, so that "stopped" has exactly one meaning: no capture, no
+     * replay, no CAM, no broker session, no wake lock, no timer left armed, and nothing in the
+     * notification shade. It is safe to call twice, which is what a Stop followed by onDestroy needs.
+     */
+    private fun stopEverything() {
+        // Timers first. A maintenance tick or a backoff reconnect that fires after this point would
+        // put the notification straight back up and reconnect a broker the user has just left.
+        handler.removeCallbacksAndMessages(null)
+        // Clearing the callback above also dropped the two flags that were only ever cleared inside it,
+        // so a service that is started again without being destroyed in between would otherwise think
+        // a drain was still scheduled and never schedule the loop again.
+        resetQueueDrainSchedule()
+        stopLocationUpdates()
+        stopBridge()
+        clearForegroundNotification()
+        stopSelf()
+    }
+
+    /**
+     * Starts the refresh loop that keeps the notification, the stats and the spool moving, if it is not
+     * already running.
+     *
+     * It is normally started once, from onCreate, but stopping removes the callback the loop reposts
+     * itself through. Without this, a service that is stopped and started again without being destroyed
+     * in between would run a capture behind a notification frozen at its last message.
+     */
+    private fun ensureMaintenanceRunning() {
+        handler.removeCallbacks(maintenance)
+        handler.post(maintenance)
+    }
+
+    /**
+     * Takes the ongoing notification and the discovery alerts down explicitly.
+     *
+     * The service otherwise trusts the framework to remove a foreground-service notification when the
+     * service dies. That is the one thing nobody notices until it fails, because what is left on screen
+     * is a STOP button for a bridge that already stopped, which reads exactly like a bridge that
+     * refused to.
+     */
+    private fun clearForegroundNotification() {
+        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        runCatching { manager.cancel(NOTIFICATION_ID) }
+        // Station alerts are dismissible by hand but nothing dismissed them for us, so they used to
+        // outlive the capture that raised them. The posted ids are cancelled by name: walking a range
+        // from the base would eventually reach the app update notification, which is not ours to take.
+        stationNotificationIds.forEach { runCatching { manager.cancel(it) } }
+        stationNotificationIds.clear()
+    }
+
+    /**
+     * Puts the wake lock where the work is, rather than in whichever call happened to start it.
+     *
+     * Capture and replay share the one non-reference-counted lock, so acquiring and releasing it in
+     * pairs lets whichever of the two finishes second put the phone to sleep underneath the one still
+     * running. Deriving it from what is active makes the order of teardown irrelevant.
+     */
+    private fun updateWakeLock() {
+        if (connectionWanted || replayWanted) acquireWakeLock() else releaseWakeLock()
+    }
+
+    /**
+     * Ends the broker session off the main thread.
+     *
+     * A graceful close writes a retained status and a DISCONNECT, and a write to a peer that stopped
+     * answering holds until the kernel gives up on retransmitting; Java offers no socket write timeout
+     * to bound it. The client serialises its own methods, so the next connect waits for this one to
+     * finish instead of racing it, while the teardown that asked for it does not.
+     */
+    private fun closeMqttClient() {
+        val client = mqttClient
+        Thread({
+            val finished = AtomicBoolean(false)
+            val abandoned = AtomicBoolean(false)
+            Thread({
+                runCatching { Thread.sleep(GRACEFUL_MQTT_CLOSE_MS) }
+                if (!finished.get()) {
+                    abandoned.set(true)
+                    client.abandon()
+                }
+            }, "mqtt-close-watchdog").apply { isDaemon = true }.start()
+            runCatching { client.close() }
+            finished.set(true)
+            if (abandoned.get()) logger.warning("MQTT broker did not answer the goodbye; session closed anyway")
+        }, "mqtt-close").apply { isDaemon = true }.start()
+    }
+
+    /**
+     * Carries a broker session that ended on its own back onto the service thread.
+     *
+     * The client notices the death on its reader thread. Without this hand-off the state the
+     * notification renders keeps whatever it was last told, which is how a bridge that lost the broker
+     * minutes ago goes on answering `MQTT Connected`.
+     */
+    private fun reportMqttLost(reason: String) {
+        logger.warning("MQTT connection lost: $reason")
+        handler.post {
+            if (!mqttEnabled || mqttClient.isConnected()) return@post
+            status = status.copy(mqttState = "Reconnecting", lastError = "MQTT connection lost: $reason")
+            publishStatus(status.lastError)
+            ensureMqttConnected()
+        }
     }
 
     private fun acquireWakeLock() {
@@ -2069,6 +2229,8 @@ class CitsBridgeService : Service() {
         private const val USB_SILENCE_TIMEOUT_MS = 15_000
         /** How long an automatic capture waits for a receiver that was pulled out before it ends. */
         private const val AUTO_UNPLUG_STOP_MS = 10_000L
+        /** How long a broker gets to be told goodbye before the socket is taken away from it. */
+        private const val GRACEFUL_MQTT_CLOSE_MS = 2_000L
         private const val BLE_WRITE_TIMEOUT_MS = 5_000
         private const val USB_WRITE_TIMEOUT_MS = 2_000
         /** Distinct from the activity's permission prompt codes 20..22. */
