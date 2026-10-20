@@ -1,13 +1,22 @@
 <!--
-    Launcher foreground: the logo by tsubotitsch (images/app-icon.svg) without its background tile and
-    the C-ITS wordmark. The paths keep the 512 px coordinates of the logo.
+    Launcher foreground: the cits-to-go logo, the icon of the identity package kept in
+    images/app-icon.svg, without its cream tile. The paths take the 750 px coordinates
+    and the stroke widths of that file, each bezier segment with its own command letter.
 
-    Bounding circle of the artwork, strokes included: centre (264.5, 236), radius 170.6.
-    Across, it reaches from the outer edge of the ring (255.94 - 130 - 64/2 = 93.9; the arc end points
-    put the ring centre at 255.94) to the outer signal arc (322 + 104 + 18/2 = 435). Up and down,
-    the ring spans 74 to 398. The group moves the centre of that circle to the canvas centre
-    (54, 54) and scales it by 0.19 to a radius of 32.4 dp, inside the 33 dp radius of the
+    Geometry of the logo: the C is an arc of radius 210 about (356.25, 375), open from
+    -58 degrees to +58 degrees, drawn as a 120 wide dark green road with a 66 wide
+    lighter green centre and a dashed cream centre line. The signal is concentric at
+    (442.5, 375): a dot of radius 34.5 in a 33 wide stroke, so an amber ring, and three
+    waves of radius 93.75, 150 and 210, each 31.5 wide and open 80 degrees; the outer one
+    has the radius of the road.
+
+    The ink reaches 293.25 px from the tile centre (375, 375), at the right end of the
+    outer wave. The group moves that centre to the canvas centre (54, 54) and scales by
+    0.1105, so the ink fills a circle of radius 32.4 dp, inside the 33 dp radius of the
     adaptive icon safe zone.
+
+    Vector drawables have no stroke dashes, so the dashed centre line is twelve separate
+    9 degree arcs, the first at 60 degrees and the next every 21 degrees.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -16,112 +25,137 @@
     android:viewportHeight="108">
 
     <group
-        android:pivotX="264.5"
-        android:pivotY="236"
-        android:scaleX="0.19"
-        android:scaleY="0.19"
-        android:translateX="-210.5"
-        android:translateY="-182">
+        android:pivotX="375"
+        android:pivotY="375"
+        android:scaleX="0.1105"
+        android:scaleY="0.1105"
+        android:translateX="-321"
+        android:translateY="-321">
 
-        <!-- The C as a ring road, open 58 degrees above and below the signal. -->
         <path
-            android:strokeColor="#1D2A48"
-            android:strokeWidth="64"
+            android:pathData="M467.531 196.91C424.949 170.301 374.242 159.832 324.605 167.398C274.969 174.965 229.684 200.066 196.961 238.152C164.242 276.238 146.25 324.789 146.25 375C146.25 425.211 164.242 473.762 196.961 511.848C229.684 549.934 274.969 575.035 324.605 582.602C374.242 590.168 424.949 579.699 467.531 553.09"
+            android:strokeColor="#2C5146"
+            android:strokeWidth="120"
             android:strokeLineCap="round"
-            android:pathData="M324.9 346.2 A130 130 0 1 1 324.9 125.8" />
+        />
 
-        <!--
-            Dashed centre line of the ring: 22 px dashes with 20 px gaps from the start of the arc, the last
-            one cut short at its end. Vector drawables have no stroke dashes, so each dash is its own arc.
-        -->
         <path
-            android:strokeColor="#E8EEF9"
-            android:strokeWidth="6"
+            android:pathData="M467.531 196.91C424.949 170.301 374.242 159.832 324.605 167.398C274.969 174.965 229.684 200.066 196.961 238.152C164.242 276.238 146.25 324.789 146.25 375C146.25 425.211 164.242 473.762 196.961 511.848C229.684 549.934 274.969 575.035 324.605 582.602C374.242 590.168 424.949 579.699 467.531 553.09"
+            android:strokeColor="#496C60"
+            android:strokeWidth="66"
             android:strokeLineCap="round"
-            android:pathData="M324.9,346.2 A130,130 0 0,1 305.4,356.2" />
-        <path
-            android:strokeColor="#E8EEF9"
-            android:strokeWidth="6"
-            android:strokeLineCap="round"
-            android:pathData="M286.3,362.4 A130,130 0 0,1 264.6,365.7" />
-        <path
-            android:strokeColor="#E8EEF9"
-            android:strokeWidth="6"
-            android:strokeLineCap="round"
-            android:pathData="M244.6,365.5 A130,130 0 0,1 223.0,361.8" />
-        <path
-            android:strokeColor="#E8EEF9"
-            android:strokeWidth="6"
-            android:strokeLineCap="round"
-            android:pathData="M204.1,355.2 A130,130 0 0,1 184.8,344.8" />
-        <path
-            android:strokeColor="#E8EEF9"
-            android:strokeWidth="6"
-            android:strokeLineCap="round"
-            android:pathData="M168.9,332.6 A130,130 0 0,1 153.9,316.6" />
-        <path
-            android:strokeColor="#E8EEF9"
-            android:strokeWidth="6"
-            android:strokeLineCap="round"
-            android:pathData="M142.8,300.0 A130,130 0 0,1 133.6,280.0" />
-        <path
-            android:strokeColor="#E8EEF9"
-            android:strokeWidth="6"
-            android:strokeLineCap="round"
-            android:pathData="M128.3,260.7 A130,130 0 0,1 126.0,238.9" />
-        <path
-            android:strokeColor="#E8EEF9"
-            android:strokeWidth="6"
-            android:strokeLineCap="round"
-            android:pathData="M127.1,218.9 A130,130 0 0,1 131.8,197.5" />
-        <path
-            android:strokeColor="#E8EEF9"
-            android:strokeWidth="6"
-            android:strokeLineCap="round"
-            android:pathData="M139.1,178.9 A130,130 0 0,1 150.4,160.1" />
-        <path
-            android:strokeColor="#E8EEF9"
-            android:strokeWidth="6"
-            android:strokeLineCap="round"
-            android:pathData="M163.3,144.8 A130,130 0 0,1 180.0,130.5" />
-        <path
-            android:strokeColor="#E8EEF9"
-            android:strokeWidth="6"
-            android:strokeLineCap="round"
-            android:pathData="M197.1,120.1 A130,130 0 0,1 217.4,111.8" />
-        <path
-            android:strokeColor="#E8EEF9"
-            android:strokeWidth="6"
-            android:strokeLineCap="round"
-            android:pathData="M236.9,107.4 A130,130 0 0,1 258.8,106.0" />
-        <path
-            android:strokeColor="#E8EEF9"
-            android:strokeWidth="6"
-            android:strokeLineCap="round"
-            android:pathData="M278.7,108.0 A130,130 0 0,1 299.9,113.7" />
-        <path
-            android:strokeColor="#E8EEF9"
-            android:strokeWidth="6"
-            android:strokeLineCap="round"
-            android:pathData="M318.2,121.9 A130,130 0 0,1 324.9,125.8" />
+        />
 
-        <!-- Signal: two waves and the dot they come from. -->
         <path
-            android:strokeColor="#2DD4C0"
-            android:strokeWidth="18"
+            android:pathData="M461.75 193.426C452.238 187.898 442.309 183.129 432.047 179.156"
+            android:strokeColor="#F5F0E6"
+            android:strokeWidth="13.5"
             android:strokeLineCap="round"
-            android:pathData="M372.4 196.6 A64 64 0 0 1 372.4 275.4" />
+        />
+
         <path
-            android:strokeColor="#2DD4C0"
-            android:strokeAlpha="0.6"
-            android:strokeWidth="18"
+            android:pathData="M389.57 167.66C378.707 165.914 367.727 165.027 356.723 165"
+            android:strokeColor="#F5F0E6"
+            android:strokeWidth="13.5"
             android:strokeLineCap="round"
-            android:pathData="M403.9 172.0 A104 104 0 0 1 403.9 300.0" />
+        />
+
         <path
-            android:fillColor="#2DD4C0"
-            android:pathData="M288,236a34,34 0 1,1 68,0a34,34 0 1,1 -68,0" />
+            android:pathData="M312.949 169.512C302.184 171.781 291.613 174.891 281.336 178.816"
+            android:strokeColor="#F5F0E6"
+            android:strokeWidth="13.5"
+            android:strokeLineCap="round"
+        />
+
         <path
-            android:fillColor="#0C1321"
-            android:pathData="M310,236a12,12 0 1,1 24,0a12,12 0 1,1 -24,0" />
+            android:pathData="M242.098 198.734C232.863 204.715 224.113 211.414 215.93 218.766"
+            android:strokeColor="#F5F0E6"
+            android:strokeWidth="13.5"
+            android:strokeLineCap="round"
+        />
+
+        <path
+            android:pathData="M186.449 251.438C179.977 260.332 174.211 269.723 169.211 279.52"
+            android:strokeColor="#F5F0E6"
+            android:strokeWidth="13.5"
+            android:strokeLineCap="round"
+        />
+
+        <path
+            android:pathData="M153.418 320.598C150.57 331.223 148.559 342.055 147.406 352.996"
+            android:strokeColor="#F5F0E6"
+            android:strokeWidth="13.5"
+            android:strokeLineCap="round"
+        />
+
+        <path
+            android:pathData="M147.406 397.004C148.559 407.945 150.57 418.777 153.418 429.402"
+            android:strokeColor="#F5F0E6"
+            android:strokeWidth="13.5"
+            android:strokeLineCap="round"
+        />
+
+        <path
+            android:pathData="M169.211 470.48C174.211 480.277 179.977 489.668 186.449 498.562"
+            android:strokeColor="#F5F0E6"
+            android:strokeWidth="13.5"
+            android:strokeLineCap="round"
+        />
+
+        <path
+            android:pathData="M215.93 531.234C224.113 538.586 232.863 545.285 242.098 551.266"
+            android:strokeColor="#F5F0E6"
+            android:strokeWidth="13.5"
+            android:strokeLineCap="round"
+        />
+
+        <path
+            android:pathData="M281.336 571.184C291.613 575.109 302.184 578.219 312.949 580.488"
+            android:strokeColor="#F5F0E6"
+            android:strokeWidth="13.5"
+            android:strokeLineCap="round"
+        />
+
+        <path
+            android:pathData="M356.723 585C367.727 584.973 378.707 584.086 389.57 582.34"
+            android:strokeColor="#F5F0E6"
+            android:strokeWidth="13.5"
+            android:strokeLineCap="round"
+        />
+
+        <path
+            android:pathData="M432.047 570.844C442.309 566.871 452.238 562.102 461.75 556.574"
+            android:strokeColor="#F5F0E6"
+            android:strokeWidth="13.5"
+            android:strokeLineCap="round"
+        />
+
+        <path
+            android:pathData="M477 375C477 394.055 461.555 409.5 442.5 409.5C423.445 409.5 408 394.055 408 375C408 355.945 423.445 340.5 442.5 340.5C461.555 340.5 477 355.945 477 375Z"
+            android:strokeColor="#E9AD29"
+            android:strokeWidth="33"
+            android:strokeLineJoin="round"
+        />
+
+        <path
+            android:pathData="M514.316 314.738C528.484 331.625 536.25 352.961 536.25 375C536.25 397.039 528.484 418.375 514.316 435.262"
+            android:strokeColor="#E9AD29"
+            android:strokeWidth="31.5"
+            android:strokeLineCap="round"
+        />
+
+        <path
+            android:pathData="M557.406 278.582C580.074 305.598 592.5 339.734 592.5 375C592.5 410.266 580.074 444.402 557.406 471.418"
+            android:strokeColor="#E9AD29"
+            android:strokeWidth="31.5"
+            android:strokeLineCap="round"
+        />
+
+        <path
+            android:pathData="M603.367 240.016C635.105 277.836 652.5 325.629 652.5 375C652.5 424.371 635.105 472.164 603.367 509.984"
+            android:strokeColor="#E9AD29"
+            android:strokeWidth="31.5"
+            android:strokeLineCap="round"
+        />
     </group>
 </vector>
