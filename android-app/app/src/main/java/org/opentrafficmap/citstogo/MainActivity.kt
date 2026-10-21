@@ -297,6 +297,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 packets = intent.getLongExtra(CitsBridgeService.EXTRA_PACKETS, 0),
                 mqttPublished = intent.getLongExtra(CitsBridgeService.EXTRA_MQTT_PUBLISHED, 0),
                 mqttQueued = intent.getLongExtra(CitsBridgeService.EXTRA_MQTT_QUEUED, 0),
+                mqttDropped = intent.getLongExtra(CitsBridgeService.EXTRA_MQTT_DROPPED, 0),
                 pcapRecording = intent.getBooleanExtra(CitsBridgeService.EXTRA_PCAP_RECORDING, false),
                 pcapPackets = intent.getLongExtra(CitsBridgeService.EXTRA_PCAP_PACKETS, 0),
                 replaying = intent.getBooleanExtra(CitsBridgeService.EXTRA_REPLAYING, false),

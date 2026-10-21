@@ -77,6 +77,13 @@ class CitsBridgeService : Service() {
     @Volatile private var serial: CtgByteTransport? = null
     private var serialReadThread: Thread? = null
     private var serialWriteThread: Thread? = null
+    private var captureWorkerThread: Thread? = null
+
+    /**
+     * Captured packets waiting for the worker that decodes them. The drain thread only ever puts one
+     * here, so a busy radio costs a discarded stale packet rather than a closed connection.
+     */
+    private val captureBacklog = CaptureBacklog(CAPTURE_BACKLOG_PACKETS)
     private var pcapWriter: PcapWriter? = null
     private var replayThread: Thread? = null
     @Volatile private var replayWanted = false
@@ -613,7 +620,7 @@ class CitsBridgeService : Service() {
             handler.removeCallbacks(autoUnplugStop)
             promoteConnectedDeviceForeground()
             status = status.copy(running = true, usbState = "Connected: ${opened.description()}")
-            val reader = SerialPacketReader(::handlePacket, ::handleTxResult, ::handleProtocolError, ::handleFirmwareStatistics, diagnosticSource = "USB")
+            val reader = SerialPacketReader(::queueCapturedPacket, ::handleTxResult, ::handleProtocolError, ::handleFirmwareStatistics, diagnosticSource = "USB")
             serialReadThread = Thread({
                 val buffer = ByteArray(16 * 1024)
                 // The firmware emits a CTG1 statistics record every second, so a healthy open
@@ -651,6 +658,7 @@ class CitsBridgeService : Service() {
                     }
                 }
             }, "ctg-serial-write").apply { start() }
+            startCaptureWorker()
             publishStatus("USB connected")
         } catch (e: Exception) {
             closeSerial(null)
@@ -697,7 +705,7 @@ class CitsBridgeService : Service() {
                 serial = opened
                 promoteConnectedDeviceForeground()
                 status = status.copy(running = true, usbState = "Connected: ${opened.description()}", lastError = "")
-                val reader = SerialPacketReader(::handlePacket, ::handleTxResult, ::handleProtocolError, ::handleFirmwareStatistics, diagnosticSource = "BLE")
+                val reader = SerialPacketReader(::queueCapturedPacket, ::handleTxResult, ::handleProtocolError, ::handleFirmwareStatistics, diagnosticSource = "BLE")
                 serialReadThread = Thread({
                     val buffer = ByteArray(16 * 1024)
                     while (connectionWanted && connectionMode == ConnectionMode.BLUETOOTH && serial === opened) {
@@ -722,6 +730,7 @@ class CitsBridgeService : Service() {
                         }
                     }
                 }, "ctg-ble-write").apply { start() }
+                startCaptureWorker()
                 publishStatus("Bluetooth connected")
             } catch (e: Exception) {
                 closeSerial(null)
@@ -747,6 +756,7 @@ class CitsBridgeService : Service() {
         runCatching { old?.close() }
         serialReadThread = null
         serialWriteThread = null
+        stopCaptureWorker()
         txQueue.clear()
         if (pendingTx.isNotEmpty()) {
             val pendingSrem = pendingTx.values.firstOrNull { it.kind == TxKind.Srem && it.sremRequestId != null }
@@ -767,12 +777,75 @@ class CitsBridgeService : Service() {
         }
     }
 
+    /**
+     * Starts the thread that turns queued captures into the work a packet is worth.
+     *
+     * It is tied to the transport rather than to the service, and [closeSerial] stops it and empties the
+     * backlog with it, so a reconnect never replays the previous session's packets into a fresh capture.
+     */
+    private fun startCaptureWorker() {
+        stopCaptureWorker()
+        // Named before it starts: the loop compares the field against its own thread to learn when the
+        // transport it belongs to has gone, and a worker started before that field held it would find the
+        // previous session's value - or none - and leave at once.
+        val worker = Thread({
+            val owner = Thread.currentThread()
+            while (!owner.isInterrupted) {
+                val batch = captureBacklog.nextBatch(CAPTURE_BATCH_PACKETS, CAPTURE_WORKER_WAIT_MS)
+                // Checked after the wait rather than before it: the teardown that cleared the backlog may
+                // have happened during it, and a batch taken just before that belongs to a session that
+                // has already ended.
+                if (captureWorkerThread !== owner) break
+                for (packet in batch) {
+                    try {
+                        handlePacket(packet)
+                    } catch (e: Exception) {
+                        handleCaptureError(e)
+                    }
+                }
+            }
+        }, "ctg-capture-worker")
+        captureWorkerThread = worker
+        worker.start()
+    }
+
+    private fun stopCaptureWorker() {
+        val old = captureWorkerThread
+        captureWorkerThread = null
+        old?.interrupt()
+        captureBacklog.clear()
+    }
+
+    /**
+     * Counts a packet the processing could not take and keeps the worker running.
+     *
+     * On the drain thread an unexpected exception became a protocol error inside the frame reader and the
+     * loop carried on. Left to itself the worker would die instead, and the capture would go on reporting
+     * itself running with nothing decoding behind it.
+     */
+    private fun handleCaptureError(error: Exception) {
+        logger.log(java.util.logging.Level.SEVERE, "Capture processing failed", error)
+        handleProtocolError("capture processing failed: ${error.message ?: error.javaClass.simpleName}")
+    }
+
     private fun handleFirmwareStatistics(statistics: FirmwareStatistics) {
         status = status.copy(
             firmwareStatistics = statistics,
             bleDebugParameters = (serial as? BleGattSerial)?.debugParameters(),
         )
         publishStatus(null)
+    }
+
+    /**
+     * Hands one captured packet to the worker.
+     *
+     * This is all the drain thread does with it. That thread has to stay free to ask the transport for the
+     * next bytes, because the receiver gives a queued record about a hundred milliseconds before it drops
+     * it, and everything that happens to a packet afterwards - decode, stations, map, PCAP, spool - is
+     * worth more on a thread of its own, where a slow moment costs a stale packet than a dead link.
+     */
+    private fun queueCapturedPacket(packet: CitsPacket) {
+        captureBacklog.offer(packet)
     }
 
     private fun handlePacket(packet: CitsPacket, publishToMqtt: Boolean = true) {
@@ -1634,6 +1707,7 @@ class CitsBridgeService : Service() {
             nodeId = nodeId,
             packetTopic = "its/$nodeId/packet",
             mqttQueued = spool.pendingCount(),
+            mqttDropped = spool.capacityDrops(),
             packets = packets,
             mqttPublished = mqttPublished,
             pcapRecording = pcapWriter != null,
@@ -1670,6 +1744,7 @@ class CitsBridgeService : Service() {
         intent.putExtra(EXTRA_PACKETS, status.packets)
         intent.putExtra(EXTRA_MQTT_PUBLISHED, status.mqttPublished)
         intent.putExtra(EXTRA_MQTT_QUEUED, status.mqttQueued)
+        intent.putExtra(EXTRA_MQTT_DROPPED, status.mqttDropped)
         intent.putExtra(EXTRA_PCAP_RECORDING, status.pcapRecording)
         intent.putExtra(EXTRA_PCAP_PACKETS, status.pcapPackets)
         intent.putExtra(EXTRA_REPLAYING, status.replaying)
@@ -2163,6 +2238,7 @@ class CitsBridgeService : Service() {
         const val EXTRA_PACKETS = "packets"
         const val EXTRA_MQTT_PUBLISHED = "mqttPublished"
         const val EXTRA_MQTT_QUEUED = "mqttQueued"
+        const val EXTRA_MQTT_DROPPED = "mqttDropped"
         const val EXTRA_PCAP_RECORDING = "pcapRecording"
         const val EXTRA_PCAP_PACKETS = "pcapPackets"
         const val EXTRA_REPLAYING = "replaying"
@@ -2266,6 +2342,10 @@ class CitsBridgeService : Service() {
         private const val USB_READ_TIMEOUT_MS = 5_000
         /** Grace for the firmware's 1 Hz statistics stream before the pipe is declared dead. */
         private const val USB_SILENCE_TIMEOUT_MS = 15_000
+        /** Captures the drain thread may hand over before it starts discarding the oldest of them. */
+        private const val CAPTURE_BACKLOG_PACKETS = 4_096
+        private const val CAPTURE_BATCH_PACKETS = 128
+        private const val CAPTURE_WORKER_WAIT_MS = 200L
         /** How long an automatic capture waits for a receiver that was pulled out before it ends. */
         private const val AUTO_UNPLUG_STOP_MS = 10_000L
         /** How long a broker gets to be told goodbye before the socket is taken away from it. */

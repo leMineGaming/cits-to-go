@@ -9,6 +9,7 @@ data class BridgeStatus(
     val packets: Long = 0,
     val mqttPublished: Long = 0,
     val mqttQueued: Long = 0,
+    val mqttDropped: Long = 0,
     val pcapRecording: Boolean = false,
     val pcapPackets: Long = 0,
     val replaying: Boolean = false,

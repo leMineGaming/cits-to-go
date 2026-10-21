@@ -154,4 +154,58 @@ class MqttSpoolTest {
         assertEquals(0L, store.value)
         spool.close()
     }
+
+    @Test
+    fun aSpoolFullOfUnsentPacketsDropsTheOldestOnes() {
+        val store = RecordingOffsets()
+        val spool = MqttSpool(spoolFile(), store, maxRecords = 5L)
+
+        repeat(8) { spool.append(byteArrayOf(it.toByte())) }
+        val batch = spool.readBatch(20)
+
+        assertEquals(5L, spool.pendingCount())
+        assertEquals(3L, spool.capacityDrops())
+        assertEquals(listOf(3, 4, 5, 6, 7), batch.map { it.payload[0].toInt() })
+        spool.close()
+    }
+
+    @Test
+    fun aSpoolOverItsByteBudgetDropsWholeRecordsFromTheFront() {
+        val spool = MqttSpool(spoolFile(), RecordingOffsets(), maxRecords = Long.MAX_VALUE, maxBytes = 24L)
+
+        // Three eight-byte records fit; every append past that pushes the cursor over the oldest one,
+        // and only whole records, so that the reader never sees a length without its payload.
+        repeat(6) { spool.append(ByteArray(4)) }
+
+        assertEquals(3L, spool.pendingCount())
+        assertEquals(3L, spool.capacityDrops())
+        assertEquals(3, spool.readBatch(20).size)
+        spool.close()
+    }
+
+    @Test
+    fun aRestartOverAnOversizedSpoolTrimsItOnTheWayIn() {
+        val file = spoolFile()
+        MqttSpool(file, RecordingOffsets(), maxRecords = 100L).use { spool ->
+            repeat(10) { spool.append(byteArrayOf(it.toByte())) }
+        }
+
+        val reopened = MqttSpool(file, RecordingOffsets(), maxRecords = 4L)
+
+        assertEquals(4L, reopened.pendingCount())
+        assertEquals(6L, reopened.capacityDrops())
+        assertEquals(4, reopened.readBatch(20).size)
+        reopened.close()
+    }
+
+    @Test
+    fun aSpoolUnderItsCapacityDropsNothing() {
+        val spool = MqttSpool(spoolFile(), RecordingOffsets(), maxRecords = 50L, maxBytes = MqttSpool.MAX_BYTES)
+
+        repeat(40) { spool.append(byteArrayOf(1, 2, 3)) }
+
+        assertEquals(0L, spool.capacityDrops())
+        assertEquals(40L, spool.pendingCount())
+        spool.close()
+    }
 }

@@ -18,6 +18,7 @@ Therefore:
 - If `BLE capture drops` increases, the BLE output queue rejected capture records. Android should also observe capture sequence gaps for those records. If `Accepted captures` temporarily exceeds `BLE capture TX` without drops while the BLE queue grows, the difference is backlog rather than loss.
 - If `USB capture drops` increases, the USB output queue rejected capture records. `USB partial writes` instead identifies records that were queued but could not be written completely.
 - A growing BLE queue with lower `BLE stream` / notification rate indicates transport backpressure even before it becomes packet loss.
+- **MQTT dropped (spool full)** counts packets the retry spool threw away because it was full, which happens while the broker is away for long. The spool keeps about 32 MB and drops the oldest of what it holds, so this counter says how much of an outage went unpublished; the PCAP recording still has every packet.
 - **Receiver USB link** is the firmware's own view of the connection, taken from the statistics record's link flags. It reports the receiver's side, not Android's: the receiver calls the link active while it sees the host's start-of-frame packets, so a phone that suspended the USB port reads as `Suspended (no SOF)` there. A phone that stops polling altogether takes the statistics record with it, so the last value before the silence is the one to read.
 - `BLE notify failures` counts notifications that could not ultimately be submitted to NimBLE; `USB partial writes` counts records whose USB write failed after starting.
 

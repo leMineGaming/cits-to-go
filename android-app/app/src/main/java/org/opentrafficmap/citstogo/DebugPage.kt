@@ -42,6 +42,7 @@ fun DebugPage(
         DebugRow("State", status.usbState)
         DebugRow("Received captures", status.packets.toString())
         DebugRow("Stream gaps", status.transportDropped.toString())
+        DebugRow("MQTT dropped (spool full)", status.mqttDropped.toString())
         DebugRow("Protocol errors", status.protocolErrors.toString())
         Text(
             "Stream gaps are inferred from CTG capture sequence numbers. A zero value means no loss was observed after the firmware assigned a capture sequence.",

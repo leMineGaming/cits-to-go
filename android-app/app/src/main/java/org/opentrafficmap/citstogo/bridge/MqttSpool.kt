@@ -48,6 +48,8 @@ private class SharedPreferencesSpoolOffsets(private val prefs: SharedPreferences
 class MqttSpool(
     private val file: File,
     private val offsets: SpoolOffsets,
+    private val maxRecords: Long = MAX_RECORDS,
+    private val maxBytes: Long = MAX_BYTES,
 ) : Closeable {
     data class Record(val payload: ByteArray, val nextOffset: Long)
 
@@ -61,6 +63,7 @@ class MqttSpool(
     private var writeOffset = 0L
     private var pending = 0L
     private var unflushed = 0
+    private var capacityDropped = 0L
 
     init {
         readOffset = offsets.load()
@@ -78,6 +81,7 @@ class MqttSpool(
         writeOffset += 4L + payload.size
         pending += 1
         unflushed += 1
+        trimToCapacity()
         // One cursor write per PERSIST_EVERY_RECORDS records. A crash in between costs at most that
         // many duplicated publishes, which QoS 0 tolerates; a write per record costs a synchronous
         // prefs file per packet on the thread that has to keep the USB port drained.
@@ -124,6 +128,10 @@ class MqttSpool(
 
     @Synchronized
     fun pendingCount(): Long = pending.coerceAtLeast(0L)
+
+    /** Packets thrown away because the spool was full; a broker outage this long is worth knowing. */
+    @Synchronized
+    fun capacityDrops(): Long = capacityDropped
 
     @Synchronized
     fun clear() {
@@ -180,8 +188,48 @@ class MqttSpool(
         }
         writeOffset = len
         pending = countRecords(readOffset, writeOffset)
+        trimToCapacity()
         compactIfUseful()
         persistOffsets()
+    }
+
+    /**
+     * Forgets the oldest waiting packets until the spool fits again, by moving the cursor over them.
+     *
+     * Nothing else bounds this file. The drain path gives up when there is no session to publish through,
+     * so neither the queue length nor the queue age the user set ever applies during an outage, and an
+     * afternoon of capture with no data connection is an afternoon of appends - a rate of tens of
+     * kilobytes a second next to a PCAP recording that wants the same storage. What goes is the oldest
+     * data, which for C-ITS is the data nobody wanted anyway: the PCAP file is the record of what was
+     * heard, and this is only a buffer for a broker that was briefly unreachable.
+     *
+     * The two limits are resource limits rather than policy, and they are checked in constant time on
+     * every append, so a healthy spool pays nothing.
+     */
+    private fun trimToCapacity() {
+        if (pending <= maxRecords && writeOffset - readOffset <= maxBytes) return
+        // The cursor can only be moved over records that have reached the file, and the append stream
+        // keeps the last few back. This flushes the bytes without disturbing [unflushed], which counts
+        // something else: how long since the cursor was persisted.
+        runCatching { appendOut?.flush() }
+        var dropped = 0L
+        RandomAccessFile(file, "r").use { raf ->
+            // Only what has reached the file can be measured, and the difference is at most the records
+            // still sitting in the append buffer.
+            val end = minOf(writeOffset, raf.length())
+            while (readOffset + 4 <= end && (pending > maxRecords || end - readOffset > maxBytes)) {
+                raf.seek(readOffset)
+                val len = readIntLE(raf)
+                if (len <= 0 || len > MAX_PAYLOAD_LEN || readOffset + 4L + len > end) break
+                readOffset += 4L + len
+                pending -= 1
+                dropped += 1
+            }
+        }
+        if (dropped > 0) {
+            capacityDropped += dropped
+            persistOffsets()
+        }
     }
 
     private fun scanGoodEnd(start: Long, max: Long): Long {
@@ -251,6 +299,10 @@ class MqttSpool(
 
         /** Records between cursor persists, and therefore the widest duplicate window after a crash. */
         const val PERSIST_EVERY_RECORDS = 32
+
+        /** How much may wait for a broker that has gone away before the oldest of it is dropped. */
+        const val MAX_RECORDS = 50_000L
+        const val MAX_BYTES = 32L * 1024L * 1024L
 
         private fun writeIntLE(out: BufferedOutputStream, value: Int) {
             out.write(value and 0xff)

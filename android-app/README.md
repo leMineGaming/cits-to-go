@@ -106,7 +106,7 @@ CAMs are Release 1 UPER messages (`protocolVersion=2`, `messageID=2`) carried
 over BTP-B destination port 2001, GeoNetworking SHB, EtherType `0x8947`, and a
 broadcast QoS 802.11 data frame. See [CAM implementation notes](../docs/CAM.md).
 
-The bridge runs as a foreground service with a partial wakelock while capture is active, so USB capture and MQTT forwarding continue while the phone is locked. MQTT publishes are retried through an app-private disk spool when the broker is offline.
+The bridge runs as a foreground service with a partial wakelock while capture is active, so USB capture and MQTT forwarding continue while the phone is locked. The thread that drains the receiver only drains it: the decode, the station table, the map, the PCAP file and the MQTT spool happen on a worker of their own, and a backlog the worker cannot clear drops the oldest captures rather than closing the link. MQTT publishes are retried through an app-private disk spool when the broker is offline; that spool is a retry buffer with a capacity of about 32 MB, and the oldest packets are dropped once it is full, so a long outage costs the stale start of it rather than the phone's storage. The PCAP recording is the record of what was heard.
 
 ### Closing the app ends the capture
 
