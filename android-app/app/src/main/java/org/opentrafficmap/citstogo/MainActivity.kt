@@ -51,6 +51,7 @@ import org.opentrafficmap.citstogo.bridge.BleDebugParameters
 import org.opentrafficmap.citstogo.bridge.BridgeStatus
 import org.opentrafficmap.citstogo.bridge.CitsBridgeService
 import org.opentrafficmap.citstogo.bridge.ConnectionMode
+import org.opentrafficmap.citstogo.cam.CamInterval
 import org.opentrafficmap.citstogo.cam.VehicleDimensions
 import org.opentrafficmap.citstogo.flashing.CodebergReleaseClient
 import org.opentrafficmap.citstogo.flashing.Esp32RomFlasher
@@ -364,7 +365,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         val prefs = getSharedPreferences(CitsBridgeService.PREFS, MODE_PRIVATE)
         connectionMode = ConnectionMode.fromWireValue(prefs.getString(PREF_CONNECTION_MODE, null))
         txApproved = prefs.getBoolean(CitsBridgeService.PREF_TX_APPROVED, false)
-        debugMenuEnabled = prefs.getBoolean(PREF_DEBUG_MENU_ENABLED, false)
+        debugMenuEnabled = prefs.getBoolean(CitsBridgeService.PREF_DEBUG_MENU_ENABLED, false)
         themeMode = ThemeMode.fromPreference(prefs.getString(PREF_THEME_MODE, null))
         displayAlwaysOnEnabled = prefs.getBoolean(PREF_DISPLAY_ALWAYS_ON, false)
         applyDisplayAlwaysOn()
@@ -416,9 +417,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             },
         )
         vehicleDimensions = SremProfile.entries.associateWith { loadVehicleDimensions(prefs, it) }
-        camIntervalMs = prefs.getInt(
-            CitsBridgeService.PREF_CAM_INTERVAL_MS,
-            CitsBridgeService.DEFAULT_CAM_INTERVAL_MS,
+        // A stress interval survives a restart only while the debug menu is still on; off, the
+        // bridge loads the same value up at the standard floor, and the page must not claim it.
+        camIntervalMs = CamInterval.clamp(
+            prefs.getInt(CitsBridgeService.PREF_CAM_INTERVAL_MS, CitsBridgeService.DEFAULT_CAM_INTERVAL_MS),
+            debugMenuEnabled,
         ).toString()
         camRandomizationEnabled = prefs.getBoolean(CitsBridgeService.PREF_CAM_RANDOMIZE_MAC, true)
         camRandomizationIntervalSeconds = (prefs.getInt(
@@ -524,8 +527,14 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     onDebugMenuEnabledChange = { enabled ->
                         debugMenuEnabled = enabled
                         getSharedPreferences(CitsBridgeService.PREFS, MODE_PRIVATE).edit()
-                            .putBoolean(PREF_DEBUG_MENU_ENABLED, enabled)
+                            .putBoolean(CitsBridgeService.PREF_DEBUG_MENU_ENABLED, enabled)
                             .apply()
+                        // Taking the stress-test range away must not leave a broadcast in it: the page
+                        // goes back to the standard floor and a running CAM takes it over at once.
+                        if (!enabled && CamInterval.outsideStandard(camIntervalMs)) {
+                            camIntervalMs = CamInterval.STANDARD_MIN_MS.toString()
+                            if (status.camEnabled) configureCam(true)
+                        }
                     },
                     themeMode = themeMode,
                     onThemeModeChange = { mode ->
@@ -1289,9 +1298,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             )
             return
         }
-        val interval = camIntervalMs.toIntOrNull()
-            ?.coerceIn(CitsBridgeService.MIN_CAM_INTERVAL_MS, CitsBridgeService.MAX_CAM_INTERVAL_MS)
-            ?: CitsBridgeService.DEFAULT_CAM_INTERVAL_MS
+        val interval = CamInterval.parse(camIntervalMs, stressTestEnabled = debugMenuEnabled)
         camIntervalMs = interval.toString()
         val randomizationIntervalMs = camRandomizationIntervalSeconds.toLongOrNull()
             ?.times(1_000L)
@@ -1715,7 +1722,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         private const val PREF_CONNECTION_MODE = "connectionMode"
         private const val PREF_INTERSECTION_SORT_MODE = "intersection_sort_mode"
         private const val PREF_STATION_TABLE_STATE = "station_table_state"
-        private const val PREF_DEBUG_MENU_ENABLED = "debug_menu_enabled"
         private const val PREF_THEME_MODE = "theme_mode"
         private const val PREF_DISPLAY_ALWAYS_ON = "display_always_on"
         private const val PREF_MAP_STATION_TIMEOUT_S = "map_station_timeout_s"

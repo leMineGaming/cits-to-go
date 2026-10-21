@@ -12,9 +12,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Sensors
 import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -31,10 +33,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import org.opentrafficmap.citstogo.cam.CamInterval
 
 @Composable
 fun CamBroadcastPage(
@@ -42,6 +48,7 @@ fun CamBroadcastPage(
     logLine: String,
     intervalMs: String,
     onIntervalChange: (String) -> Unit,
+    debugMenuEnabled: Boolean,
     randomizationEnabled: Boolean,
     onRandomizationEnabledChange: (Boolean) -> Unit,
     randomizationIntervalSeconds: String,
@@ -64,8 +71,14 @@ fun CamBroadcastPage(
             status = status,
             intervalMs = intervalMs,
             onIntervalChange = onIntervalChange,
+            debugMenuEnabled = debugMenuEnabled,
             onConfigure = onConfigure,
         )
+        // The interval is the one field a stress test drives below the standard, so the warning goes
+        // next to it and follows what is typed rather than what was last started.
+        if (CamInterval.outsideStandard(intervalMs)) {
+            CamStressIntervalCard(debugMenuEnabled = debugMenuEnabled)
+        }
         CamPrivacyPanel(
             status = status,
             randomizationEnabled = randomizationEnabled,
@@ -84,6 +97,7 @@ private fun CamPanel(
     status: BridgeStatus,
     intervalMs: String,
     onIntervalChange: (String) -> Unit,
+    debugMenuEnabled: Boolean,
     onConfigure: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
@@ -146,7 +160,8 @@ private fun CamPanel(
                 enabled = !status.camEnabled,
                 label = { Text("Broadcast interval") },
                 suffix = { Text("ms") },
-                supportingText = { Text("Allowed CAM range: 100–1000 ms") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                supportingText = { CamIntervalRange(debugMenuEnabled) },
             )
 
             Button(
@@ -168,6 +183,102 @@ private fun CamPanel(
                     fontWeight = FontWeight.Medium,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun CamIntervalRange(debugMenuEnabled: Boolean) {
+    val standardRange = CamInterval.rangeMs(stressTestEnabled = false)
+    val allowedRange = CamInterval.rangeMs(debugMenuEnabled)
+    if (allowedRange == standardRange) {
+        Text(stringResource(R.string.cam_interval_range, standardRange.first, standardRange.last))
+    } else {
+        Text(
+            stringResource(
+                R.string.cam_interval_range_stress,
+                allowedRange.first,
+                allowedRange.last,
+                standardRange.first,
+                standardRange.last,
+            ),
+        )
+    }
+}
+
+/**
+ * The red notice for an interval the standard does not allow. It answers the number in the field, so
+ * it appears while that number is typed and disappears again before anything is ever transmitted;
+ * [debugMenuEnabled] only says whether the number is one Start would honour.
+ */
+@Composable
+private fun CamStressIntervalCard(debugMenuEnabled: Boolean) {
+    val context = LocalContext.current
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(CAM_INTERVAL_STRESS_WARNING_TAG),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(ContextCompat.getColor(context, R.color.error_container)),
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(ContextCompat.getColor(context, R.color.error))),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Warning,
+                        contentDescription = null,
+                        tint = Color(ContextCompat.getColor(context, R.color.on_error)),
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 12.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.cam_interval_stress_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(ContextCompat.getColor(context, R.color.on_error_container)),
+                    )
+                    Text(
+                        stringResource(R.string.cam_interval_stress_body, CamInterval.STANDARD_MIN_MS),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(ContextCompat.getColor(context, R.color.on_error_container)),
+                    )
+                }
+            }
+            Text(
+                if (debugMenuEnabled) {
+                    stringResource(R.string.cam_interval_stress_from_debug_menu)
+                } else {
+                    stringResource(
+                        R.string.cam_interval_stress_needs_debug_menu,
+                        CamInterval.STANDARD_MIN_MS,
+                    )
+                },
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(ContextCompat.getColor(context, R.color.on_error_container)),
+            )
         }
     }
 }
@@ -258,8 +369,12 @@ private fun CamPrivacyPanel(
                 label = { Text("Randomize every") },
                 placeholder = { Text("60") },
                 suffix = { Text("s") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 supportingText = { Text("Allowed range: 1–600 s") },
             )
         }
     }
 }
+
+/** Finds the warning about an interval below the standard. See [CamStressIntervalCard]. */
+internal const val CAM_INTERVAL_STRESS_WARNING_TAG = "cam_interval_stress_warning"

@@ -72,16 +72,49 @@ CAM page):
 ## Generation policy
 
 The UI interval is constrained to 100–1000 ms and acts as the maximum
-generation interval. The app checks every 100 ms and generates early when a
-new location differs from the previous CAM by more than:
+generation interval. The debug menu replaces that floor with 1 ms, see
+[Stress test below the standard](#stress-test-below-the-standard).
+The app checks every 100 ms — or every interval, whichever
+is shorter — and generates early when a new location differs from the previous
+CAM by more than:
 
 - 4 m in position;
 - 4 degrees in heading; or
 - 0.5 m/s in speed.
 
-This implements the core CAM dynamics triggers. A production ITS station must
-also integrate the local DCC state and certified security/authorization
-services; an Android phone does not expose those facilities.
+This implements the core CAM dynamics triggers. An early generation never closes
+a gap of less than 100 ms, so no burst of location changes pushes a station past
+the standard rate — the stress-test range below is the one thing that may.
+A production ITS station must also integrate the local DCC state and certified
+security/authorization services; an Android phone does not expose those
+facilities.
+
+### Stress test below the standard
+
+The **Debug menu** in Settings lowers the floor of the CAM interval field from
+100 ms to 1 ms — 1000 CAMs per second — to load a receiver, a map, or the TX
+path. That range is not standard behaviour: ETSI EN 302 637-2 gives a CAM
+station 1 to 10 generations per second. While the field reads below 100 ms the
+CAM Broadcast page shows a red card next to it, saying what such an interval
+is — explicitly against the standard, most likely an overload for every other
+participant in range, and most likely illegal on public roads.
+
+The floor is not a rule of the UI alone. The bridge reads the same preference the
+settings page writes and clamps every interval it is handed, from an intent as
+well as from storage, so a sub-standard rate cannot start without the debug
+menu. Below the standard, the dynamics triggers may close a gap only down to the
+interval itself and the broadcaster wakes as often as the interval asks for, so a
+stress test sends at its interval and not faster. Switching the menu off returns
+the field to 100 ms, and the bridge watches that preference itself: it pulls a
+running broadcast back to the standard floor even when the app is mid-recreation
+and has not yet learned that the CAM is still on.
+
+The Android TX queue of 64 frames is the practical limit at these rates: at 1 ms
+it fills within a few milliseconds, further CAMs are dropped and counted as
+failed transmits, and the "TX queue is full" notice repeats once a second rather
+than once per CAM. Rates well below 100 ms are best effort in another sense too:
+the broadcaster, the status broadcasts and the screen all share the phone's main
+thread, so the delivered rate depends on how fast that thread runs.
 
 ## Standards and upstream implementation
 

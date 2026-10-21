@@ -1,4 +1,4 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="logs_title">Logs</string>
     <string name="logs_time_column">Time (UTC)</string>
     <string name="logs_level_column">Level</string>
@@ -55,6 +55,15 @@
     <string name="vehicle_trailer_known_length">Trailer, included in the length</string>
     <string name="vehicle_trailer_unknown_length">Trailer of unknown length</string>
 
+    <!-- CAM Broadcast page -->
+    <string name="cam_interval_range">Allowed CAM range: %1$d–%2$d ms</string>
+    <string name="cam_interval_range_stress">Stress-test range: %1$d–%2$d ms. The standard allows %3$d–%4$d ms.</string>
+    <string name="cam_interval_stress_title">Outside the C-ITS standard</string>
+    <!-- The hyphen belongs to the standard's name, it is no range, so the dash rule does not apply. -->
+    <string name="cam_interval_stress_body" tools:ignore="TypographyDashes">An interval below %1$d ms broadcasts more than the 10 CAMs per second that ETSI EN 302 637-2 allows. This is explicitly against the standard, it will most likely overload the other participants in range with a flood of CAMs, and it is most likely illegal on public roads. Stress test only, in a shielded and authorised environment.</string>
+    <string name="cam_interval_stress_from_debug_menu">This range was unlocked by enabling Debug in the Settings.</string>
+    <string name="cam_interval_stress_needs_debug_menu">Start sends %1$d ms instead. This range needs Debug enabled in the Settings.</string>
+
     <!-- Map -->
     <string name="map_history_show">Show road side units heard before</string>
     <string name="map_history_hide">Hide road side units heard before</string>
@@ -96,7 +105,7 @@
 
     <!-- Debug Section -->
     <string name="debug_title">Debug menu</string>
-    <string name="debug_description">Show firmware and transport diagnostics in the navigation drawer.</string>
+    <string name="debug_description">Show firmware and transport diagnostics in the navigation drawer, and allow CAM intervals below the standard for stress tests.</string>
     <string name="debug_revoke_tx_approval">Revoke TX Approval</string>
     <string name="debug_tx_approval_not_active">TX Approval not active</string>
 

@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Icon
 import android.content.IntentFilter
+import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.content.pm.PackageManager
 import android.hardware.usb.UsbDevice
@@ -28,6 +29,7 @@ import android.provider.DocumentsContract
 import org.opentrafficmap.citstogo.BuildConfig
 import org.opentrafficmap.citstogo.MainActivity
 import org.opentrafficmap.citstogo.cam.CamIdentity
+import org.opentrafficmap.citstogo.cam.CamInterval
 import org.opentrafficmap.citstogo.cam.CamPosition
 import org.opentrafficmap.citstogo.cam.ItsG5FrameBuilder
 import org.opentrafficmap.citstogo.cam.StationType
@@ -118,6 +120,8 @@ class CitsBridgeService : Service() {
     private var lastStatsElapsedMs = 0L
     private var lastPacketStatusElapsedMs = 0L
     private var lastPacketStatusPackets = 0L
+    /** When the last "TX queue is full" status went out; see [TX_QUEUE_FULL_STATUS_INTERVAL_MS]. */
+    private var lastTxQueueFullStatusElapsedMs = 0L
     private val txQueue = LinkedBlockingQueue<TxEnvelope>(MAX_TX_QUEUE)
     private val nextTxRequestId = AtomicLong(1)
     private val nextSremRequestId = AtomicLong(1)
@@ -226,11 +230,11 @@ class CitsBridgeService : Service() {
                 it.time in (wallClockMs - MAX_LOCATION_AGE_MS)..(wallClockMs + 1_000L)
             }
             if (sampledLocation == null) {
-                handler.postDelayed(this, CAM_TRIGGER_CHECK_MS)
+                handler.postDelayed(this, camTriggerCheckMs)
                 return
             }
             if (!camGenerationDue(elapsedMs, sampledLocation)) {
-                handler.postDelayed(this, CAM_TRIGGER_CHECK_MS)
+                handler.postDelayed(this, camTriggerCheckMs)
                 return
             }
             val referenceTimeMs = sampledLocation.time
@@ -246,9 +250,34 @@ class CitsBridgeService : Service() {
                 lastCamGeneratedElapsedMs = elapsedMs
                 lastCamLocation = sampledLocation
             }
-            handler.postDelayed(this, CAM_TRIGGER_CHECK_MS)
+            handler.postDelayed(this, camTriggerCheckMs)
         }
     }
+
+    /**
+     * How long the broadcaster sleeps next. A fixed 100 ms look would cap it at 10 CAMs per second
+     * whatever the interval asks for, so it follows the interval down into the stress-test range.
+     */
+    private val camTriggerCheckMs: Long get() = CamInterval.triggerCheckMs(camIntervalMs)
+
+    /**
+     * The debug menu is the only thing between an interval and the radio, so taking it away has to
+     * reach the bridge itself rather than the page: a recreated activity has not yet heard that a CAM
+     * is broadcasting, and would leave a sub-standard one running. The broadcaster reads the interval
+     * on every tick, so lowering it here is the whole repair.
+     */
+    private val camPrefsListener =
+        SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+            if (key != PREF_DEBUG_MENU_ENABLED) return@OnSharedPreferenceChangeListener
+            if (prefs.getBoolean(PREF_DEBUG_MENU_ENABLED, false)) return@OnSharedPreferenceChangeListener
+            val standardIntervalMs = CamInterval.clamp(camIntervalMs, stressTestEnabled = false)
+            if (standardIntervalMs == camIntervalMs) return@OnSharedPreferenceChangeListener
+            camIntervalMs = standardIntervalMs
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putInt(PREF_CAM_INTERVAL_MS, camIntervalMs)
+                .apply()
+            if (camEnabled) publishStatus("CAM interval back to the standard $camIntervalMs ms")
+        }
 
     /**
      * Applies the CAM privacy mode: while randomization is enabled the station periodically
@@ -272,7 +301,7 @@ class CitsBridgeService : Service() {
     private fun camGenerationDue(nowElapsedMs: Long, location: Location?): Boolean {
         val elapsed = nowElapsedMs - lastCamGeneratedElapsedMs
         if (lastCamGeneratedElapsedMs == 0L || elapsed >= camIntervalMs) return true
-        if (elapsed < MIN_CAM_INTERVAL_MS) return false
+        if (elapsed < CamInterval.motionTriggerFloorMs(camIntervalMs)) return false
         val previous = lastCamLocation ?: return false
         val current = location ?: return false
         if (previous.distanceTo(current) > 4f) return true
@@ -312,6 +341,8 @@ class CitsBridgeService : Service() {
         baseCamIdentity = loadOrCreateCamIdentity()
         camIdentity = baseCamIdentity
         loadCamSettings()
+        getSharedPreferences(PREFS, MODE_PRIVATE)
+            .registerOnSharedPreferenceChangeListener(camPrefsListener)
         loadMqttSettings()
         discoveredMacAddresses.addAll(loadDiscoveredMacAddresses())
         discoveredDevices = discoveredMacAddresses.size.toLong()
@@ -449,6 +480,9 @@ class CitsBridgeService : Service() {
         handler.removeCallbacksAndMessages(null)
         stopLocationUpdates()
         runCatching { unregisterReceiver(usbReceiver) }
+        runCatching {
+            getSharedPreferences(PREFS, MODE_PRIVATE).unregisterOnSharedPreferenceChangeListener(camPrefsListener)
+        }
         stopBridge()
         persistStations()
         persistMacAddressesIfDue()
@@ -1105,7 +1139,16 @@ class CitsBridgeService : Service() {
             pendingTx.remove(requestId)
             txFailed += 1
             status = status.copy(lastError = "Android TX queue is full")
-            publishStatus(status.lastError)
+            // Whatever filled the queue, a refusal repeats itself at most once a second from here. A
+            // CAM stress interval asks for far more transmits than the radio takes, and each refusal
+            // used to answer with its own status broadcast — a thousand a second, each rebuilding and
+            // logging the whole status, drowning the very screen it is meant to inform. The count and
+            // lastError still say it every time, the broadcast only once a second.
+            val nowElapsedMs = SystemClock.elapsedRealtime()
+            if (nowElapsedMs - lastTxQueueFullStatusElapsedMs >= TX_QUEUE_FULL_STATUS_INTERVAL_MS) {
+                lastTxQueueFullStatusElapsedMs = nowElapsedMs
+                publishStatus(status.lastError)
+            }
             return false
         }
         txRequested += 1
@@ -1280,7 +1323,9 @@ class CitsBridgeService : Service() {
             return
         }
         camStationType = if (stationType in StationType.selectable) stationType else StationType.PEDESTRIAN
-        camIntervalMs = requestedIntervalMs.coerceIn(MIN_CAM_INTERVAL_MS, MAX_CAM_INTERVAL_MS)
+        // The debug menu is the only way into the sub-standard range, and it is checked here rather
+        // than trusted from the page: a stored or forged intent must not broadcast 1000 CAMs per second.
+        camIntervalMs = CamInterval.clamp(requestedIntervalMs, camStressTestEnabled())
         camMacRandomizationEnabled = randomizeIdentity
         camRandomizationIntervalMs = requestedRandomizationIntervalMs
             .coerceIn(MIN_CAM_RANDOMIZATION_INTERVAL_MS, MAX_CAM_RANDOMIZATION_INTERVAL_MS)
@@ -2090,6 +2135,10 @@ class CitsBridgeService : Service() {
         return runCatching { ByteArray(6) { parts[it].toInt(16).toByte() } }.getOrNull()
     }
 
+    /** The debug menu of Settings, which is what allows a CAM interval below the standard's 10 Hz. */
+    private fun camStressTestEnabled(): Boolean =
+        getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_DEBUG_MENU_ENABLED, false)
+
     private fun loadCamSettings() {
         val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
         val vehicleTypeCode = when {
@@ -2100,8 +2149,10 @@ class CitsBridgeService : Service() {
             else -> prefs.getInt(PREF_CAM_STATION_TYPE, StationType.PEDESTRIAN.code)
         }
         camStationType = StationType.selectableFromCode(vehicleTypeCode)
-        camIntervalMs = prefs.getInt(PREF_CAM_INTERVAL_MS, DEFAULT_CAM_INTERVAL_MS)
-            .coerceIn(MIN_CAM_INTERVAL_MS, MAX_CAM_INTERVAL_MS)
+        camIntervalMs = CamInterval.clamp(
+            prefs.getInt(PREF_CAM_INTERVAL_MS, DEFAULT_CAM_INTERVAL_MS),
+            prefs.getBoolean(PREF_DEBUG_MENU_ENABLED, false),
+        )
         camMacRandomizationEnabled = prefs.getBoolean(PREF_CAM_RANDOMIZE_MAC, true)
         camRandomizationIntervalMs = prefs
             .getInt(PREF_CAM_RANDOMIZATION_INTERVAL_MS, DEFAULT_CAM_RANDOMIZATION_INTERVAL_MS)
@@ -2305,6 +2356,8 @@ class CitsBridgeService : Service() {
         const val PREF_MQTT_MAX_QUEUE_AGE_MS = "mqtt_max_queue_age_ms"
         const val PREF_DISCOVERED_MAC_ADDRESSES = "discovered_mac_addresses"
         const val PREF_DISCOVERED_STATIONS = "discovered_stations"
+        /** Settings owns it, the bridge reads it: it is what unlocks the CAM stress-test range. */
+        const val PREF_DEBUG_MENU_ENABLED = "debug_menu_enabled"
         const val PREF_CAM_ENABLED = "cam_enabled"
         const val PREF_CAM_STATION_TYPE = "cam_station_type"
         const val PREF_CAM_INTERVAL_MS = "cam_interval_ms"
@@ -2323,9 +2376,10 @@ class CitsBridgeService : Service() {
         const val DEFAULT_MQTT_URI = "mqtts://cits1.opentrafficmap.org"
         const val DEFAULT_MQTT_MAX_QUEUE_LENGTH = 100
         const val DEFAULT_MQTT_MAX_QUEUE_AGE_MS = 200L
-        const val DEFAULT_CAM_INTERVAL_MS = 500
-        const val MIN_CAM_INTERVAL_MS = 100
-        const val MAX_CAM_INTERVAL_MS = 1_000
+        /** The standard CAM interval range; [CamInterval] holds the stress-test floor the debug menu unlocks. */
+        const val DEFAULT_CAM_INTERVAL_MS = CamInterval.DEFAULT_MS
+        const val MIN_CAM_INTERVAL_MS = CamInterval.STANDARD_MIN_MS
+        const val MAX_CAM_INTERVAL_MS = CamInterval.MAX_MS
         const val DEFAULT_CAM_RANDOMIZATION_INTERVAL_MS = 60_000
         const val MIN_CAM_RANDOMIZATION_INTERVAL_MS = 1_000
         const val MAX_CAM_RANDOMIZATION_INTERVAL_MS = 600_000
@@ -2358,9 +2412,10 @@ class CitsBridgeService : Service() {
         private const val MAX_LOCATION_AGE_MS = 5_000L
         private const val MAX_SREM_ETA_MS = 60_000L
         private const val PENDING_SREM_MAX_AGE_MS = 60_000L
-        private const val CAM_TRIGGER_CHECK_MS = 100L
         private const val MAINTENANCE_INTERVAL_MS = 2_000L
         private const val PACKET_STATUS_INTERVAL_MS = 100L
+        /** How often a persistently full TX queue may repeat itself in a status broadcast. */
+        private const val TX_QUEUE_FULL_STATUS_INTERVAL_MS = 1_000L
         private const val PACKET_STATUS_PACKET_INTERVAL = 10L
         private const val LIVE_MAP_SNAPSHOT_INTERVAL_MS = 1_000L
         private const val MQTT_MAX_BATCH = 100

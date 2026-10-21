@@ -1559,13 +1559,13 @@ private fun DebugCard(
                         .padding(start = 12.dp),
                 ) {
                     Text(
-                        "Debug menu",
+                        stringResource(R.string.debug_title),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = Color(ContextCompat.getColor(context, R.color.on_surface)),
                     )
                     Text(
-                        "Show firmware and transport diagnostics in the navigation drawer.",
+                        stringResource(R.string.debug_description),
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(ContextCompat.getColor(context, R.color.on_surface_variant)),
                     )

@@ -3,6 +3,10 @@
 The Android app can expose an optional **Debug** page. Enable it in **Settings → Debug menu**.
 The page is intended to distinguish radio/capture loss from transport loss without attaching a debugger.
 
+The same switch unlocks a stress-test floor of 1 ms for the CAM broadcast interval, far below the
+100 ms of ETSI EN 302 637-2; the CAM Broadcast page warns about such an interval in red. See
+[CAM.md](CAM.md#stress-test-below-the-standard).
+
 ## Interpreting the counters
 
 The capture path has three useful stages:

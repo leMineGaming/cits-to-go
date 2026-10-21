@@ -505,6 +505,9 @@ fun CitsApp(
                             logLine = logLine,
                             intervalMs = camIntervalMs,
                             onIntervalChange = onCamIntervalChange,
+                            // The menu that unlocks the stress-test range also decides what the page
+                            // says about an interval below the standard.
+                            debugMenuEnabled = debugMenuEnabled,
                             randomizationEnabled = camRandomizationEnabled,
                             onRandomizationEnabledChange = onCamRandomizationEnabledChange,
                             randomizationIntervalSeconds = camRandomizationIntervalSeconds,
