@@ -70,6 +70,13 @@ fun DebugPage(
             DebugRow("BLE notifications", "${stats.bleNotificationsPerSecond}/s")
             DebugRow("Sample period", "${stats.sampleMs} ms")
             DebugRow("Firmware uptime", formatDurationMs(stats.uptimeMs))
+            // The receiver calls itself connected while it sees the host's start-of-frame packets, so
+            // this is its side of the link rather than Android's: a phone that suspended the port reads
+            // as suspended here long before the last statistics record went out.
+            DebugRow(
+                "Receiver USB link",
+                if (stats.usbConnected) "Active (SOF seen)" else "Suspended (no SOF)",
+            )
         }
     }
 

@@ -136,8 +136,12 @@ OpenTrafficMap web map. Tap a marker for its details. The history button adds th
 
 Android's battery optimisation can still stop or throttle the app a few
 minutes after the screen turns off, even with the foreground service and
-wakelock. A capture then ends early. Before long captures, exempt
-**C-ITS to go** from battery optimisation. Menu names differ between Android
+wakelock. A capture then ends early. It matters for more than battery life: while
+Android is optimising the app, the wake lock that keeps the receiver polled is
+ignored, and a capture can go quiet with the screen off without anything stopping
+it. **Settings → Background running** reports whether this app is exempt and opens
+the system list that decides it. Before long captures, exempt **C-ITS to go** from
+battery optimisation. Menu names differ between Android
 versions and manufacturers; if you can't find an entry, search the Settings app
 for "battery".
 

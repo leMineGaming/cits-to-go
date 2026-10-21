@@ -25,6 +25,7 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Bluetooth
+import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.BrightnessAuto
 import androidx.compose.material.icons.rounded.BrightnessHigh
 import androidx.compose.material.icons.rounded.Build
@@ -98,6 +99,8 @@ fun SettingsPage(
     onThemeModeChange: (ThemeMode) -> Unit,
     displayAlwaysOnEnabled: Boolean,
     onDisplayAlwaysOnEnabledChange: (Boolean) -> Unit,
+    batteryOptimizationIgnored: Boolean,
+    onOpenBatteryOptimizationSettings: () -> Unit,
     stationDiscoveryNotificationEnabled: Boolean,
     onStationDiscoveryNotificationChange: (Boolean) -> Unit,
     appUpdateNotificationEnabled: Boolean,
@@ -206,6 +209,11 @@ fun SettingsPage(
             onThemeModeChange = onThemeModeChange,
             displayAlwaysOnEnabled = displayAlwaysOnEnabled,
             onDisplayAlwaysOnEnabledChange = onDisplayAlwaysOnEnabledChange,
+        )
+
+        BatteryCard(
+            optimizationIgnored = batteryOptimizationIgnored,
+            onOpenSettings = onOpenBatteryOptimizationSettings,
         )
 
         DebugCard(
@@ -1402,6 +1410,103 @@ private fun TxApprovalCard(
             ) {
                 Text(
                     if (txApproved) "Revoke TX Approval" else "TX Approval not active",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Says whether Android is allowed to optimise this app away, and opens the system list that decides it.
+ *
+ * The capture's partial wake lock is what keeps the receiver polled while the screen is off, and an
+ * application wake lock is ignored while its uid is being optimised, so a restricted app loses the
+ * link without losing the notification. Only the settings list is opened from here: the one-tap
+ * request is reserved for use cases Play does not consider this one to be.
+ */
+@Composable
+private fun BatteryCard(
+    optimizationIgnored: Boolean,
+    onOpenSettings: () -> Unit,
+) {
+    val context = LocalContext.current
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(ContextCompat.getColor(context, R.color.card)),
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(ContextCompat.getColor(context, R.color.tertiary_container))),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.BatteryChargingFull,
+                        contentDescription = null,
+                        tint = Color(ContextCompat.getColor(context, R.color.tertiary)),
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 12.dp),
+                ) {
+                    Text(
+                        "Background running",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(ContextCompat.getColor(context, R.color.on_surface)),
+                    )
+                    Text(
+                        "A capture keeps the receiver polled with a wake lock, and battery optimisation ignores it. " +
+                            "Allow unrestricted battery use to keep capturing with the screen off.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(ContextCompat.getColor(context, R.color.on_surface_variant)),
+                    )
+                }
+            }
+
+            StatusMessageRow(
+                message = if (optimizationIgnored) {
+                    "Battery optimisation: unrestricted."
+                } else {
+                    "Battery optimisation is restricted for this app."
+                },
+                isError = !optimizationIgnored,
+                icon = Icons.Rounded.BatteryChargingFull,
+            )
+
+            Button(
+                onClick = onOpenSettings,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(ContextCompat.getColor(context, R.color.primary_container)),
+                    contentColor = Color(ContextCompat.getColor(context, R.color.primary)),
+                ),
+            ) {
+                Text(
+                    "Open battery settings",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium,
                 )

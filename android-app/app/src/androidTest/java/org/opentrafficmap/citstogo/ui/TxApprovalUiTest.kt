@@ -116,6 +116,8 @@ class TxApprovalUiTest {
                 onThemeModeChange = {},
                 displayAlwaysOnEnabled = false,
                 onDisplayAlwaysOnEnabledChange = {},
+                batteryOptimizationIgnored = true,
+                onOpenBatteryOptimizationSettings = {},
                 stationDiscoveryNotificationEnabled = false,
                 onStationDiscoveryNotificationChange = {},
                 appUpdateNotificationEnabled = false,

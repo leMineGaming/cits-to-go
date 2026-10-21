@@ -25,8 +25,10 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.OpenableColumns
+import android.provider.Settings
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -121,6 +123,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var debugMenuEnabled by mutableStateOf(false)
     private var themeMode by mutableStateOf(ThemeMode.System)
     private var displayAlwaysOnEnabled by mutableStateOf(false)
+    private var batteryOptimizationIgnored by mutableStateOf(true)
     private var stationDiscoveryNotificationEnabled by mutableStateOf(true)
     private var appUpdateNotificationEnabled by mutableStateOf(true)
     private var autoConnectOnPluginEnabled by mutableStateOf(false)
@@ -364,6 +367,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         themeMode = ThemeMode.fromPreference(prefs.getString(PREF_THEME_MODE, null))
         displayAlwaysOnEnabled = prefs.getBoolean(PREF_DISPLAY_ALWAYS_ON, false)
         applyDisplayAlwaysOn()
+        batteryOptimizationIgnored = isIgnoringBatteryOptimizations()
         stationDiscoveryNotificationEnabled = prefs.getBoolean(CitsBridgeService.PREF_NOTIFY_STATION_DISCOVERY, true)
         appUpdateNotificationEnabled = prefs.getBoolean(CitsBridgeService.PREF_NOTIFY_APP_UPDATE, true)
         autoConnectOnPluginEnabled = prefs.getBoolean(PREF_AUTO_CONNECT_ON_PLUGIN, false)
@@ -537,6 +541,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                             .apply()
                         applyDisplayAlwaysOn()
                     },
+                    batteryOptimizationIgnored = batteryOptimizationIgnored,
+                    onOpenBatteryOptimizationSettings = ::openBatteryOptimizationSettings,
                     stationDiscoveryNotificationEnabled = stationDiscoveryNotificationEnabled,
                     onStationDiscoveryNotificationChange = { enabled ->
                         stationDiscoveryNotificationEnabled = enabled
@@ -597,6 +603,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     override fun onResume() {
         super.onResume()
         refreshDevices()
+        // The bridge asks once for the USB grant a sleeping phone can cost it, and it cannot show that
+        // prompt from the background. Coming back to the foreground is the first moment it can, and the
+        // status the bridge answers with replaces whatever this screen remembered from the sleep.
+        if (status.running) sendServiceIntent(CitsBridgeService.ACTION_RECONNECT)
+        batteryOptimizationIgnored = isIgnoringBatteryOptimizations()
         if (!txApproved) startTxShakeDetection()
         if (wantsIntersectionLocation) {
             startOrRequestIntersectionLocation()
@@ -1419,6 +1430,39 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
+    /**
+     * Whether Android may optimise this app away — the state that decides whether the capture's wake
+     * lock is honoured at all. A wake lock held by an optimised application is ignored while the device
+     * idles, and the receiver then stops being polled with the screen off, which is the failure the
+     * Settings card explains.
+     */
+    private fun isIgnoringBatteryOptimizations(): Boolean = runCatching {
+        (getSystemService(POWER_SERVICE) as PowerManager).isIgnoringBatteryOptimizations(packageName)
+    }.getOrDefault(true)
+
+    /**
+     * Opens the system's own battery-optimisation list rather than asking for the exemption directly.
+     *
+     * Google Play reserves the one-tap request for a narrower set of apps than this, and a capture does
+     * not depend on winning it in one tap. The app details screen is the fallback for a ROM that ships
+     * without the list activity, which is one more thing OEMs have chosen not to standardise.
+     */
+    private fun openBatteryOptimizationSettings() {
+        val opened = runCatching {
+            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        }.recoverCatching {
+            startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    .setData(Uri.fromParts("package", packageName, null)),
+            )
+        }.isSuccess
+        logLine = if (opened) {
+            "Pick ${getString(R.string.app_name)} in the list and choose Unrestricted."
+        } else {
+            "This phone has no battery settings to open."
         }
     }
 

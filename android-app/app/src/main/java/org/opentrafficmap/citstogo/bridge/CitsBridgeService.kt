@@ -158,6 +158,7 @@ class CitsBridgeService : Service() {
     /** Per-station discovery detail, persisted so the table survives restarts. */
     private val stationStore = StationDiscoveryStore()
     private var storedStationsGeneration = -1L
+    private var macAddressesDirty = false
     private var lastStationsPublishedElapsedMs = 0L
     private var stationsPublishForced = true
 
@@ -286,6 +287,7 @@ class CitsBridgeService : Service() {
             }
             flushPcapQuietly()
             persistStationsIfDue()
+            persistMacAddressesIfDue()
             publishStatsIfDue()
             publishStatus(null)
             updateNotification()
@@ -354,6 +356,7 @@ class CitsBridgeService : Service() {
             )
             ACTION_STOP_REPLAY -> stopReplay(log = true)
             ACTION_REQUEST_STATUS -> publishStatus(null)
+            ACTION_RECONNECT -> resumeInterruptedConnection()
             ACTION_CLEAR_DISCOVERED_STATIONS -> clearDiscoveredStations(
                 intent.getBooleanExtra(EXTRA_INCLUDE_ROAD_SIDE_UNITS, true),
             )
@@ -441,6 +444,7 @@ class CitsBridgeService : Service() {
         runCatching { unregisterReceiver(usbReceiver) }
         stopBridge()
         persistStations()
+        persistMacAddressesIfDue()
         runCatching { spool.close() }
         // Repeated rather than trusted to stopEverything: this is also the path a task removal takes
         // on a platform that acts on the manifest flag instead of calling onTaskRemoved.
@@ -566,6 +570,24 @@ class CitsBridgeService : Service() {
             ConnectionMode.USB -> openUsb()
             ConnectionMode.BLUETOOTH -> openBluetooth()
         }
+    }
+
+    /**
+     * Gives a capture that is waiting on the user another chance, and tells the interface what is
+     * actually happening.
+     *
+     * The USB grant is asked for once per connection, because the reconnect poll must not nag, and a
+     * prompt raised while the app is in the background cannot be shown at all. A receiver that
+     * re-enumerated while the phone slept therefore sits at `USB permission required` with nothing
+     * left to try, which reads as a dead connection whose only escape is stopping and starting it.
+     * The activity sends this as soon as it is looked at again: the prompt is allowed now, the port is
+     * reopened without waiting for the next poll, and the status reply replaces whatever the interface
+     * remembered from before the screen went off.
+     */
+    private fun resumeInterruptedConnection() {
+        permissionRequestedDeviceName = null
+        publishStatus(null)
+        if (connectionWanted && serial == null) scheduleConnectionReconnect(0)
     }
 
     private fun openUsb() {
@@ -760,7 +782,7 @@ class CitsBridgeService : Service() {
         val discoveredMacAddress = Ieee80211Mac.sourceAddress(packet.payload)
         if (discoveredMacAddress != null && discoveredMacAddresses.add(discoveredMacAddress)) {
             discoveredDevices = discoveredMacAddresses.size.toLong()
-            storeDiscoveredMacAddresses()
+            macAddressesDirty = true
             sendStationDiscoveryNotification(discoveredMacAddress)
         }
         val extraction = ItsFrameExtractor.extractDetailed(packet.payload)
@@ -2036,6 +2058,21 @@ class CitsBridgeService : Service() {
         persistStations()
     }
 
+    /**
+     * Writes the seen-address table on the maintenance tick rather than from the packet that noticed a
+     * new station.
+     *
+     * The table is the whole history, so each write serialises all of it: done per station, that is a
+     * growing copy on the thread whose job is to keep the transport drained, and it grows all day in a
+     * deployment where receivers rotate their addresses. The counter the interface shows is untouched,
+     * since it reads the set in memory, and the teardown path flushes what the tick has not reached.
+     */
+    private fun persistMacAddressesIfDue() {
+        if (!macAddressesDirty) return
+        macAddressesDirty = false
+        storeDiscoveredMacAddresses()
+    }
+
     private fun persistStations() {
         val json = stationStore.encode()
         storedStationsGeneration = stationStore.generation
@@ -2057,6 +2094,7 @@ class CitsBridgeService : Service() {
         stationsPublishForced = true
         persistStations()
         storeDiscoveredMacAddresses()
+        macAddressesDirty = false
         status = status.copy(discoveredDevices = discoveredDevices)
         publishStatus("Discovery table cleared")
     }
@@ -2100,6 +2138,7 @@ class CitsBridgeService : Service() {
         const val ACTION_STOP_REPLAY = "org.opentrafficmap.citstogo.action.STOP_REPLAY"
         const val ACTION_SET_MQTT_ENABLED = "org.opentrafficmap.citstogo.action.SET_MQTT_ENABLED"
         const val ACTION_REQUEST_STATUS = "org.opentrafficmap.citstogo.action.REQUEST_STATUS"
+        const val ACTION_RECONNECT = "org.opentrafficmap.citstogo.action.RECONNECT"
         const val ACTION_CONFIGURE_CAM = "org.opentrafficmap.citstogo.action.CONFIGURE_CAM"
         const val ACTION_SEND_SREM = "org.opentrafficmap.citstogo.action.SEND_SREM"
         const val ACTION_REVOKE_TX_APPROVAL = "org.opentrafficmap.citstogo.action.REVOKE_TX_APPROVAL"
