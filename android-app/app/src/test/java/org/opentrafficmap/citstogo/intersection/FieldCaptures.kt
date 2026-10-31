@@ -16,7 +16,9 @@ object FieldCaptures {
             File("../$fileName"),
             File("../../$fileName"),
             File(fileName),
-        ).first { it.exists() }
+        ).firstOrNull { it.exists() } ?: throw org.junit.AssumptionViolatedException(
+            "Recorded field capture $fileName is not available in this checkout",
+        )
         val bytes = pcap.readBytes()
         require(intLE(bytes, 0) == 0xA1B2C3D4.toInt()) { "Not a little-endian pcap: $fileName" }
         var offset = 24

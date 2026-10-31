@@ -64,5 +64,32 @@
             android:exported="false"
             android:stopWithTask="true"
             android:foregroundServiceType="connectedDevice|dataSync|location" />
+
+        <service
+            android:name=".drive.DriveAssistService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="location|dataSync" />
+
+        <!--
+            Android Auto: the app uses the official Car App Library and declares the navigation
+            category because its core purpose is position-aware driving guidance. Only supported
+            Pane/Message templates are used; no projection or undocumented APIs.
+        -->
+        <service
+            android:name=".drive.auto.DriveCarAppService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.car.app.CarAppService" />
+                <category android:name="androidx.car.app.category.NAVIGATION" />
+            </intent-filter>
+            <meta-data
+                android:name="androidx.car.app.minCarApiLevel"
+                android:value="1" />
+        </service>
+
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
     </application>
 </manifest>

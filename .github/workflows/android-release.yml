@@ -1,0 +1,190 @@
+name: Android Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version without the leading v (for example 2.63.0)'
+        required: true
+        type: string
+      version_code:
+        description: 'Optional monotonic Android versionCode (defaults to the repository value)'
+        required: false
+        type: string
+
+# Least privilege: the release job needs to write a GitHub Release for this repository only.
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out the requested revision
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine release version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$'; then
+            echo "Invalid release version: $VERSION" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing $VERSION (tag v$VERSION)"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
+
+      - name: Set up Gradle with caching
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Apply release version
+        working-directory: android-app
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.version }}
+          VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          if [ -n "$VERSION_CODE" ]; then
+            if ! echo "$VERSION_CODE" | grep -Eq '^[0-9]+$'; then
+              echo "version_code must be an integer" >&2
+              exit 1
+            fi
+            CURRENT_CODE="$(sed -n -E 's/^[[:space:]]*versionCode[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p' app/build.gradle | head -1)"
+            if [ -n "$CURRENT_CODE" ] && [ "$VERSION_CODE" -le "$CURRENT_CODE" ]; then
+              echo "version_code $VERSION_CODE must be greater than the repository versionCode $CURRENT_CODE" >&2
+              exit 1
+            fi
+            sed -i -E "s/versionCode = [0-9]+/versionCode = $VERSION_CODE/" app/build.gradle
+          fi
+          sed -i -E "s/versionName = '[^']*'/versionName = '$VERSION_NAME'/" app/build.gradle
+          grep -E 'version(Code|Name)' app/build.gradle
+
+      - name: Run unit tests
+        working-directory: android-app
+        run: ./gradlew :app:testDebugUnitTest --console=plain
+
+      - name: Run lint
+        working-directory: android-app
+        run: ./gradlew :app:lintDebug --console=plain
+
+      - name: Prepare optional signing material
+        id: signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && \
+             [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            KEYSTORE="$RUNNER_TEMP/cits-release.keystore"
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+            echo "CITS_RELEASE_STORE_FILE=$KEYSTORE" >> "$GITHUB_ENV"
+            echo "CITS_RELEASE_STORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "CITS_RELEASE_KEY_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "CITS_RELEASE_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "Signing material configured."
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No signing secrets configured; the release APK will be unsigned and installable for personal testing after manual signing or with the debug key."
+          fi
+
+      - name: Build release APK
+        working-directory: android-app
+        run: ./gradlew :app:assembleRelease --console=plain
+
+      - name: Build release App Bundle
+        working-directory: android-app
+        continue-on-error: true
+        run: ./gradlew :app:bundleRelease --console=plain
+
+      - name: Collect release artifacts
+        working-directory: android-app
+        run: |
+          set -euo pipefail
+          mkdir -p ../release-artifacts
+          VERSION="${{ steps.version.outputs.version }}"
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            cp app/build/outputs/apk/release/app-release.apk \
+              "../release-artifacts/C-ITS-Drive-Assist-v${VERSION}.apk"
+          else
+            cp app/build/outputs/apk/release/app-release-unsigned.apk \
+              "../release-artifacts/C-ITS-Drive-Assist-v${VERSION}-unsigned.apk"
+          fi
+          if [ -f app/build/outputs/bundle/release/app-release.aab ]; then
+            cp app/build/outputs/bundle/release/app-release.aab \
+              "../release-artifacts/C-ITS-Drive-Assist-v${VERSION}.aab"
+          fi
+          (cd ../release-artifacts && sha256sum * > SHA256SUMS.txt)
+          ls -lh ../release-artifacts
+
+      - name: Generate release notes
+        run: |
+          PREVIOUS_TAG="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
+          {
+            echo "## C-ITS Drive Assist ${{ steps.version.outputs.version }}"
+            echo
+            echo "### Changes"
+            if [ -n "$PREVIOUS_TAG" ]; then
+              git log --pretty='- %s (%h)' "${PREVIOUS_TAG}..HEAD"
+            else
+              git log -n 40 --pretty='- %s (%h)'
+            fi
+            echo
+            echo "### Notes"
+            echo "- C-ITS and GLOSA information is supplementary. Always observe the road, signals and speed limits."
+            echo "- See README.md for hardware, TCP framing, Android Auto and installation instructions."
+            if [ "${{ steps.signing.outputs.signed }}" != "true" ]; then
+              echo "- This release was built without signing secrets and contains an unsigned APK for personal testing."
+            fi
+          } > "$RUNNER_TEMP/release-notes.md"
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cits-drive-assist-release-${{ steps.version.outputs.version }}
+          path: release-artifacts/*
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: C-ITS Drive Assist ${{ steps.version.outputs.version }}
+          body_path: ${{ runner.temp }}/release-notes.md
+          files: release-artifacts/*
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

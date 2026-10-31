@@ -1,6 +1,10 @@
 # CITS-to-go Android App
 
-Android app for the **CITS-to-go** portable C-ITS receiver.
+Android app for the **CITS-to-go** portable C-ITS receiver. The same app now contains the
+**C-ITS Drive Assist** dashboard (TCP C-ITS receiver, SPATEM/MAPEM/DENM processing, GLOSA, safety
+alerts, driver profiles and Android Auto). See the repository root [README](../README.md) and
+[Drive Assist design notes](../docs/DRIVE_ASSIST.md). The capture bridge described below remains
+available from the **Capture** section of the app.
 
 The app reads and writes the bidirectional `CTG1` USB protocol, records
 received packets to PCAP, forwards captures to MQTT, sends arbitrary raw

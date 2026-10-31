@@ -79,6 +79,18 @@ import org.opentrafficmap.citstogo.bridge.UsbCdcSerial
 import org.opentrafficmap.citstogo.update.CodebergAppUpdateChecker
 import org.opentrafficmap.citstogo.util.parcelableExtra
 import org.opentrafficmap.citstogo.util.serializableExtra
+import org.opentrafficmap.citstogo.drive.DriveAssistService
+import org.opentrafficmap.citstogo.drive.config.DriveConfigDocument
+import org.opentrafficmap.citstogo.drive.config.DriveSettings
+import org.opentrafficmap.citstogo.drive.engine.DriveSnapshot
+import org.opentrafficmap.citstogo.drive.net.TcpConnectionTester
+import org.opentrafficmap.citstogo.drive.profile.ProfileState
+import org.opentrafficmap.citstogo.drive.safety.SafetyEvent
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import android.widget.Toast
 
 class MainActivity : ComponentActivity(), SensorEventListener {
     private lateinit var usbManager: UsbManager
@@ -160,6 +172,13 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var flashingState by mutableStateOf(FirmwareFlashingState.initial(BuildConfig.VERSION_NAME))
     private var flashingLog by mutableStateOf<List<FirmwareFlashLogEntry>>(emptyList())
 
+    private val appContainer: AppContainer get() = (application as CitsApplication).container
+    private var driveState by mutableStateOf(DriveSnapshot())
+    private var driveSettings by mutableStateOf(DriveSettings())
+    private var driveProfileState by mutableStateOf(ProfileState.default())
+    private var driveHistory by mutableStateOf<List<SafetyEvent>>(emptyList())
+    private var driveLocationPermissionGranted by mutableStateOf(false)
+
     private val locationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { grants ->
@@ -200,6 +219,56 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { }
+
+    private val driveLocationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { grants ->
+        driveLocationPermissionGranted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (driveLocationPermissionGranted) {
+            DriveAssistService.start(this)
+        }
+    }
+
+    private val exportDriveConfigLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                contentResolver.openOutputStream(uri)?.use { stream ->
+                    stream.write(
+                        DriveConfigDocument(
+                            appContainer.settingsRepository.current(),
+                            appContainer.profileRepository.current(),
+                        ).toJson().toByteArray(),
+                    )
+                }
+            }.onSuccess {
+                Toast.makeText(this, "Configuration exported", Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(this, "Could not export configuration: ${it.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private val importDriveConfigLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                    ?.let(DriveConfigDocument::fromJson)
+                    ?: error("Empty or unreadable file")
+            }.onSuccess { document ->
+                appContainer.settingsRepository.replace(document.settings.copy(onboardingCompleted = true))
+                appContainer.profileRepository.replace(document.profileState.profiles, document.profileState.selectedId)
+                DriveAssistService.start(this)
+                Toast.makeText(this, "Configuration imported", Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(this, "Invalid configuration file: ${it.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     private val createPcapLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -440,11 +509,20 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
         })
-        requestNotificationPermission()
+        driveSettings = appContainer.settingsRepository.current()
+        driveProfileState = appContainer.profileRepository.current()
+        driveState = appContainer.driveEngine.current()
+        driveHistory = appContainer.driveEngine.alertHistory(200)
+        driveLocationPermissionGranted = hasDriveLocationPermission()
+        if (driveSettings.onboardingCompleted) requestNotificationPermission()
+        observeDriveState()
         checkForAppUpdate()
         refreshDevices()
         selectedDeviceName = selectedDeviceName ?: devices.firstOrNull()?.deviceName
         if (savedInstanceState == null) autoStartOnPlugIn(intent)
+        if (driveSettings.onboardingCompleted && driveSettings.autoConnect) {
+            DriveAssistService.start(this)
+        }
         setContent {
             CitsTheme(themeMode = themeMode) {
                 CitsApp(
@@ -605,14 +683,101 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                             MapHistoryDays.parse(updatedMapHistoryDays),
                         )
                     },
+                    driveState = driveState,
+                    driveSettings = driveSettings,
+                    profileState = driveProfileState,
+                    driveHistory = driveHistory,
+                    locationPermissionGranted = driveLocationPermissionGranted,
+                    driveHandlers = buildDriveHandlers(),
                 )
             }
         }
     }
 
+    private fun observeDriveState() {
+        lifecycleScope.launch {
+            appContainer.driveEngine.state.collect { snapshot ->
+                driveState = snapshot
+                driveHistory = appContainer.driveEngine.alertHistory(200)
+            }
+        }
+        lifecycleScope.launch {
+            appContainer.settingsRepository.state.collect { settings ->
+                driveSettings = settings
+            }
+        }
+        lifecycleScope.launch {
+            appContainer.profileRepository.state.collect { profiles ->
+                driveProfileState = profiles
+                applyDisplayAlwaysOn()
+            }
+        }
+    }
+
+    private fun hasDriveLocationPermission(): Boolean =
+        checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    private fun requestDriveLocationPermission() {
+        driveLocationPermissionLauncher.launch(
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+        )
+    }
+
+    private fun shareDiagnostics(text: String) {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "C-ITS Drive Assist diagnostics")
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        startActivity(Intent.createChooser(intent, "Export diagnostics"))
+    }
+
+    private fun buildDriveHandlers(): DriveUiHandlers = DriveUiHandlers(
+        onStartService = {
+            requestNotificationPermission()
+            DriveAssistService.start(this)
+        },
+        onStopService = { DriveAssistService.stop(this) },
+        onReconnectService = { DriveAssistService.reconnect(this) },
+        onUpdateSettings = { settings ->
+            val previous = appContainer.settingsRepository.current()
+            appContainer.settingsRepository.replace(settings)
+            if (settings.simulationEnabled && !previous.simulationEnabled) {
+                DriveAssistService.start(this)
+            }
+        },
+        onUpdateProfile = { profile -> appContainer.profileRepository.update(profile) },
+        onSelectProfile = { id -> appContainer.profileRepository.select(id) },
+        onCreateProfile = { name -> appContainer.profileRepository.create(name) },
+        onDuplicateProfile = { id -> appContainer.profileRepository.duplicate(id) },
+        onDeleteProfile = { id -> appContainer.profileRepository.delete(id) },
+        onDismissAlert = { actionId -> appContainer.driveEngine.dismissAlert(actionId) },
+        onTestConnection = { host, port -> TcpConnectionTester.test(host, port) },
+        onExportConfig = { exportDriveConfigLauncher.launch("cits-drive-config.json") },
+        onImportConfig = { importDriveConfigLauncher.launch(arrayOf("application/json", "text/plain")) },
+        onExportDiagnostics = ::shareDiagnostics,
+        onRequestLocationPermission = ::requestDriveLocationPermission,
+        onRequestNotificationPermission = { requestNotificationPermission() },
+        onCompleteOnboarding = {
+            requestNotificationPermission()
+            Toast.makeText(this, "Setup complete", Toast.LENGTH_SHORT).show()
+        },
+        onResetOnboarding = {
+            appContainer.settingsRepository.update { it.copy(onboardingCompleted = false) }
+        },
+        onSwitchTheme = { mode ->
+            themeMode = mode
+            getSharedPreferences(CitsBridgeService.PREFS, MODE_PRIVATE).edit()
+                .putString(PREF_THEME_MODE, mode.name)
+                .apply()
+        },
+    )
+
     override fun onResume() {
         super.onResume()
         refreshDevices()
+        driveLocationPermissionGranted = hasDriveLocationPermission()
         // The bridge asks once for the USB grant a sleeping phone can cost it, and it cannot show that
         // prompt from the background. Coming back to the foreground is the first moment it can, and the
         // status the bridge answers with replaces whatever this screen remembered from the sleep.
@@ -1434,7 +1599,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
      * this activity is in the foreground, so the phone sleeps normally as soon as the app leaves it.
      */
     private fun applyDisplayAlwaysOn() {
-        if (displayAlwaysOnEnabled) {
+        if (displayAlwaysOnEnabled || driveProfileState.selected.keepScreenOn) {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)

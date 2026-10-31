@@ -6,8 +6,12 @@ import org.opentrafficmap.citstogo.logging.AppLogging
 import java.util.logging.Logger
 
 class CitsApplication : Application() {
+    lateinit var container: AppContainer
+        private set
+
     override fun onCreate() {
         super.onCreate()
+        container = AppContainer(this)
         AppLogging.install()
         Logger.getLogger("org.opentrafficmap.citstogo.Application").info(
             "App ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}); " +

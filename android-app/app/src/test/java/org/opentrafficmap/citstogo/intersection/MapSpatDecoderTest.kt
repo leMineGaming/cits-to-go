@@ -369,7 +369,15 @@ class MapSpatDecoderTest {
         writer.constrained(0, -1_800_000_000, 1_800_000_001) // longitude
         writer.constrained(2, 1, 255) // two lanes
 
-        vehicleLane(writer, laneId = 1, ingress = true, egress = false, nodes = listOf(0 to 0, 100 to 0, 0 to 100), connectsTo = listOf(2 to 7))
+        vehicleLane(
+            writer,
+            laneId = 1,
+            ingress = true,
+            egress = false,
+            nodes = listOf(0 to 0, 100 to 0, 0 to 100),
+            connectsTo = listOf(2 to 7),
+            laneSpeedLimitsKph = listOf(50),
+        )
         vehicleLane(writer, laneId = 2, ingress = false, egress = true, nodes = listOf(150 to 100, 0 to 100), connectsTo = emptyList())
 
         return ItsPacket(
@@ -391,6 +399,7 @@ class MapSpatDecoderTest {
         egress: Boolean,
         nodes: List<Pair<Int, Int>>,
         connectsTo: List<Pair<Int, Int>>,
+        laneSpeedLimitsKph: List<Int> = emptyList(),
     ) {
         // GenericLane optionality.
         writer.bit(false) // extension
@@ -419,10 +428,29 @@ class MapSpatDecoderTest {
         writer.constrained(nodes.size, 2, 63)
         nodes.forEach { (x, y) ->
             writer.bit(false) // Node-XY extension
-            writer.bit(false) // attributes absent
+            writer.bit(laneSpeedLimitsKph.isNotEmpty()) // attributes present
             writer.bits(0, 3) // offset choice 0: 1 cm, 10-bit signed
             writer.constrained(x, -512, 511)
             writer.constrained(y, -512, 511)
+            if (laneSpeedLimitsKph.isNotEmpty()) {
+                writer.bit(false) // NodeAttributeSetXY extension
+                writer.bit(false) // local
+                writer.bit(false) // disabled
+                writer.bit(false) // enabled
+                writer.bit(true) // data
+                writer.bit(false) // width
+                writer.bit(false) // elevation
+                writer.bit(false) // regional
+                writer.constrained(1, 1, 8) // one LaneDataAttribute
+                writer.bit(false) // LaneDataAttribute extension
+                writer.bits(5, 3) // choice: speedLimits
+                writer.constrained(laneSpeedLimitsKph.size, 1, 9)
+                laneSpeedLimitsKph.forEach { kph ->
+                    writer.bit(false) // RegulatorySpeedLimit type extension
+                    writer.bits(0, 4) // type: maximum speed
+                    writer.constrained((kph / 0.036).toInt(), 0, 8191)
+                }
+            }
         }
 
         if (connectsTo.isNotEmpty()) {
@@ -470,6 +498,13 @@ class MapSpatDecoderTest {
             }
         }
         assertTrue(resolvableWithGeometry > 0)
+    }
+
+    @Test
+    fun decodesPerLaneSpeedLimitFromNodeAttributes() {
+        val packet = syntheticTwoLaneMapem()
+        val intersections = MapSpatDecoder.decodeMap(packet, receivedAtMs = 1)
+        assertEquals(listOf(50), intersections.single().lanes.first().speedLimitsKph)
     }
 
     private fun pcapFrames(fileName: String = "cits-1785335702733.pcap"): List<ByteArray> =

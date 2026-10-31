@@ -14,8 +14,7 @@ import org.opentrafficmap.citstogo.packet.TestFrames.hex
 import org.opentrafficmap.citstogo.packet.TestFrames.shbFrame
 import org.opentrafficmap.citstogo.packet.Tshark
 
-class DenmDecoderTest {
-    private val vehicleDenm = ReceivedDenm(
+class DenmDecoderTest {    private val vehicleDenm = ReceivedDenm(
         stationId = 0x8000_0001L,
         originatingStationId = 0x8000_0001L,
         sequenceNumber = 4_711,
@@ -343,5 +342,186 @@ internal object WiresharkDenm {
             },
             traces = traces,
         )
+    }
+}
+
+class DenmEventSpeedTest {
+    @Test
+    fun eventSpeedAndHeadingAreRetained() {
+        val withTraces = ReceivedDenm(
+            stationId = 42,
+            originatingStationId = 42,
+            sequenceNumber = 1,
+            detectionTimeIts = 1,
+            referenceTimeIts = 1,
+            termination = null,
+            latitude = 480_000_000,
+            longitude = 160_000_000,
+            awarenessDistance = null,
+            awarenessTrafficDirection = null,
+            validityDurationSeconds = 60,
+            transmissionIntervalMs = null,
+            stationType = 5,
+            situation = DenmSituation(informationQuality = 1, causeCode = 3, subCauseCode = 1),
+            traces = listOf(listOf(DeltaPosition(1_150, -300), DeltaPosition(1_020, -260))),
+        )
+        val bytes = pdu(withTraces, optionalFields = true)
+        val decoded = DenmDecoder.decode(
+            org.opentrafficmap.citstogo.intersection.ItsPacket(
+                destinationPort = DENM_PORT,
+                protocolVersion = 2,
+                messageId = 1,
+                stationId = withTraces.stationId,
+                bodyOffset = 6,
+                payload = bytes,
+                sourceLatitude = null,
+                sourceLongitude = null,
+            ),
+        )
+        assertEquals(1_389, decoded!!.eventSpeedCms)
+        assertEquals(900, decoded.eventHeadingTenths)
+    }
+
+    @Test
+    fun alacarteLaneRoadworksStationaryAndImpactAreDecoded() {
+        val base = ReceivedDenm(
+            stationId = 42,
+            originatingStationId = 42,
+            sequenceNumber = 3,
+            detectionTimeIts = 1,
+            referenceTimeIts = 1,
+            termination = null,
+            latitude = 480_000_000,
+            longitude = 160_000_000,
+            awarenessDistance = 3,
+            awarenessTrafficDirection = 2,
+            validityDurationSeconds = 300,
+            transmissionIntervalMs = 1_000,
+            stationType = 5,
+            situation = DenmSituation(informationQuality = 1, causeCode = 3, subCauseCode = 1),
+            traces = listOf(listOf(DeltaPosition(100, 100))),
+        )
+        val alacarte = DenmAlacarte(
+            lanePosition = 2,
+            impactReduction = DenmImpactReduction(
+                heightLeftM = 0.5,
+                heightRightM = 0.6,
+                positionLeftM = 0.3,
+                positionRightM = 0.4,
+                pillarOffsetsM = listOf(0.2, 0.3),
+                centreOfMassM = 1.2,
+                wheelbaseM = 2.5,
+                turningRadiusM = 5.6,
+                frontAxleM = 0.8,
+                occupantsBits = 0b101,
+                vehicleMassKg = 1_500,
+                requestResponse = 1,
+            ),
+            externalTemperatureC = 21,
+            roadWorks = DenmRoadWorks(
+                lightBarSirenBits = 1,
+                closedLanes = DenmClosedLanes(0, 1, 0b101),
+                restrictedStationTypes = listOf(5, 6),
+                speedLimitKph = 30,
+                incidentCauseCode = 3,
+                incidentSubCauseCode = 1,
+                recommendedPath = listOf(480_000_100 to 160_000_100),
+                startingPointSpeedLimit = 480_000_000 to 160_000_000,
+                trafficFlowRule = 2,
+                referenceActionIds = listOf(77L to 3),
+            ),
+            positioningSolution = 2,
+            stationaryVehicle = DenmStationaryVehicle(
+                stationarySince = 0,
+                causeCode = 94,
+                subCauseCode = 2,
+                dangerousGoodsType = 6,
+                dangerousGoodsUnNumber = 1_203,
+                numberOfOccupants = 2,
+                vehicleIdentification = "WMI123456",
+                energyStorageBits = 0b10,
+            ),
+        )
+        val bytes = pdu(base.copy(alacarte = alacarte))
+        val decoded = DenmDecoder.decode(
+            org.opentrafficmap.citstogo.intersection.ItsPacket(
+                destinationPort = DENM_PORT,
+                protocolVersion = 2,
+                messageId = 1,
+                stationId = base.stationId,
+                bodyOffset = 6,
+                payload = bytes,
+                sourceLatitude = null,
+                sourceLongitude = null,
+            ),
+        )!!
+        val decodedAlacarte = decoded.alacarte!!
+        assertEquals(2, decodedAlacarte.lanePosition)
+        assertEquals("Lane 2", decodedAlacarte.lanePositionLabel)
+        assertEquals(21, decodedAlacarte.externalTemperatureC)
+        assertEquals(2, decodedAlacarte.positioningSolution)
+        val impact = decodedAlacarte.impactReduction!!
+        assertEquals(0.5, impact.heightLeftM!!, 0.001)
+        assertEquals(0.6, impact.heightRightM!!, 0.001)
+        assertEquals(0.3, impact.positionLeftM!!, 0.001)
+        assertEquals(0.4, impact.positionRightM!!, 0.001)
+        assertEquals(listOf(0.2, 0.3), impact.pillarOffsetsM)
+        assertEquals(2.5, impact.wheelbaseM!!, 0.001)
+        assertEquals(5.6, impact.turningRadiusM!!, 0.001)
+        assertEquals(1_500, impact.vehicleMassKg)
+        assertEquals(0b101, impact.occupantsBits)
+        val roadWorks = decodedAlacarte.roadWorks!!
+        assertEquals(30, roadWorks.speedLimitKph)
+        assertEquals(0b101, roadWorks.closedLanes!!.drivingLaneStatusBits)
+        assertEquals(listOf(5, 6), roadWorks.restrictedStationTypes)
+        assertEquals(3, roadWorks.incidentCauseCode)
+        assertEquals(1, roadWorks.incidentSubCauseCode)
+        assertEquals(1, roadWorks.recommendedPath.size)
+        assertEquals(2, roadWorks.trafficFlowRule)
+        assertEquals(480_000_000 to 160_000_000, roadWorks.startingPointSpeedLimit)
+        assertEquals(listOf(77L to 3), roadWorks.referenceActionIds)
+        val stationary = decodedAlacarte.stationaryVehicle!!
+        assertEquals("Stationary for less than 1 minute", stationary.stationarySinceLabel)
+        assertEquals(94, stationary.causeCode)
+        assertEquals(6, stationary.dangerousGoodsType)
+        assertEquals(1_203, stationary.dangerousGoodsUnNumber)
+        assertEquals(2, stationary.numberOfOccupants)
+        assertEquals("WMI123456", stationary.vehicleIdentification)
+        assertEquals(0b10, stationary.energyStorageBits)
+    }
+
+    @Test
+    fun cancellationIsDecodedWithoutASituationContainer() {
+        val cancelled = ReceivedDenm(
+            stationId = 42,
+            originatingStationId = 42,
+            sequenceNumber = 2,
+            detectionTimeIts = 1,
+            referenceTimeIts = 1,
+            termination = DenmTermination.Cancellation,
+            latitude = 480_000_000,
+            longitude = 160_000_000,
+            awarenessDistance = null,
+            awarenessTrafficDirection = null,
+            validityDurationSeconds = 60,
+            transmissionIntervalMs = null,
+            stationType = 5,
+            situation = null,
+        )
+        val bytes = pdu(cancelled)
+        val decoded = DenmDecoder.decode(
+            org.opentrafficmap.citstogo.intersection.ItsPacket(
+                destinationPort = DENM_PORT,
+                protocolVersion = 2,
+                messageId = 1,
+                stationId = cancelled.stationId,
+                bodyOffset = 6,
+                payload = bytes,
+                sourceLatitude = null,
+                sourceLongitude = null,
+            ),
+        )
+        assertEquals(DenmTermination.Cancellation, decoded!!.termination)
+        assertEquals(null, decoded.situation)
     }
 }

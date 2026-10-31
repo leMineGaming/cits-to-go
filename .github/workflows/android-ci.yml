@@ -1,0 +1,99 @@
+name: Android CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege: CI only reads the repository and uploads artifacts.
+permissions:
+  contents: read
+
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8
+
+jobs:
+  build:
+    name: Test, lint and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
+
+      - name: Set up Gradle with caching
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Unit tests
+        working-directory: android-app
+        run: ./gradlew :app:testDebugUnitTest --console=plain
+
+      - name: Lint
+        working-directory: android-app
+        run: ./gradlew :app:lintDebug --console=plain
+
+      - name: Build debug APK
+        working-directory: android-app
+        run: ./gradlew :app:assembleDebug --console=plain
+
+      # The release build intentionally has no signing config in CI. It proves the release
+      # variant compiles and produces an installable (unsigned) APK without any secrets.
+      - name: Build release APK (unsigned)
+        working-directory: android-app
+        run: ./gradlew :app:assembleRelease --console=plain
+
+      - name: Collect artifacts with predictable names
+        if: success()
+        working-directory: android-app
+        run: |
+          mkdir -p ../ci-artifacts
+          cp app/build/outputs/apk/debug/app-debug.apk ../ci-artifacts/C-ITS-Drive-Assist-debug.apk
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            cp app/build/outputs/apk/release/app-release.apk ../ci-artifacts/C-ITS-Drive-Assist-release.apk
+          else
+            cp app/build/outputs/apk/release/app-release-unsigned.apk ../ci-artifacts/C-ITS-Drive-Assist-release-unsigned.apk
+          fi
+
+      - name: Upload APKs
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cits-drive-assist-apks
+          path: ci-artifacts/*.apk
+          if-no-files-found: error
+
+      - name: Upload test and lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cits-drive-assist-reports
+          path: |
+            android-app/app/build/reports/tests/**
+            android-app/app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+
+      - name: Summarise failure
+        if: failure()
+        run: |
+          {
+            echo "## Android CI failed"
+            echo "See the uploaded reports artifact for the unit-test, lint and build output."
+          } >> "$GITHUB_STEP_SUMMARY"

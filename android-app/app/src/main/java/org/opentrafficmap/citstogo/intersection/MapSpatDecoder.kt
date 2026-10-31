@@ -58,7 +58,11 @@ object MapSpatDecoder {
         val revision = reader.constrained(0, 127).toInt()
         val refPoint = reader.position3D()
         val laneWidth = if (hasLaneWidth) reader.constrained(0, 32767).toInt() else null
-        if (hasSpeedLimits) repeat(reader.sequenceLength(1, 9)) { reader.regulatorySpeedLimit() }
+        val speedLimits = if (hasSpeedLimits) {
+            List(reader.sequenceLength(1, 9)) { reader.regulatorySpeedLimit() }
+        } else {
+            emptyList()
+        }
         val lanes = List(reader.sequenceLength(1, 255)) { reader.genericLane() }
         if (hasPreemptPriority) {
             throw IntersectionDecodeException("Unsupported IntersectionGeometry preemptPriorityData")
@@ -73,6 +77,7 @@ object MapSpatDecoder {
             laneWidthCm = laneWidth,
             lanes = lanes,
             receivedAtMs = receivedAtMs,
+            speedLimitsKph = speedLimits.map { speedValueToKph(it) }.filter { it > 0 },
         )
     }
 
@@ -186,7 +191,7 @@ object MapSpatDecoder {
         val egressApproach = if (hasEgress) constrained(0, 15).toInt() else null
         val attrs = laneAttributes()
         if (hasManeuvers) skipBits(12)
-        val nodes = nodeList()
+        val laneNodes = nodeList()
         val connectsTo = if (hasConnectsTo) {
             List(sequenceLength(1, 16)) { connection() }
         } else {
@@ -201,8 +206,9 @@ object MapSpatDecoder {
             laneType = attrs.type,
             ingress = attrs.ingress,
             egress = attrs.egress,
-            nodes = nodes,
+            nodes = laneNodes.nodes,
             connections = connectsTo,
+            speedLimitsKph = laneNodes.speedLimitsKph,
         )
     }
 
@@ -240,29 +246,49 @@ object MapSpatDecoder {
         )
     }
 
-    private fun UperBitReader.nodeList(): List<LaneNode> {
+    private data class NodeListResult(
+        val nodes: List<LaneNode>,
+        val speedLimitsKph: List<Int> = emptyList(),
+    )
+
+    private fun UperBitReader.nodeList(): NodeListResult {
         val choice = readChoiceIndex(rootChoices = 2, extensible = true)
         if (choice != 0) throw IntersectionDecodeException("Computed lanes are not supported")
         var x = 0
         var y = 0
-        return List(sequenceLength(2, 63)) {
-            val node = nodeXY()
-            x += node.xCm
-            y += node.yCm
-            node.copy(xCm = x, yCm = y)
+        val speedLimits = LinkedHashSet<Int>()
+        val nodes = List(sequenceLength(2, 63)) {
+            val parsed = nodeXY()
+            x += parsed.node.xCm
+            y += parsed.node.yCm
+            speedLimits += parsed.speedLimitsKph
+            parsed.node.copy(xCm = x, yCm = y)
         }
+        return NodeListResult(nodes, speedLimits.toList())
     }
 
-    private fun UperBitReader.nodeXY(): LaneNode {
+    private data class ParsedNode(
+        val node: LaneNode,
+        val speedLimitsKph: List<Int> = emptyList(),
+    )
+
+    private fun UperBitReader.nodeXY(): ParsedNode {
         val hasExtension = bit()
         if (hasExtension) throw IntersectionDecodeException("NodeXY extensions are not supported")
         val hasAttributes = bit()
         val delta = nodeOffsetPoint()
         val attrs = if (hasAttributes) nodeAttributeSetXY() else NodeAttrs()
-        return LaneNode(delta.first, delta.second, attrs.stopLine, attrs.widthDelta)
+        return ParsedNode(
+            LaneNode(delta.first, delta.second, attrs.stopLine, attrs.widthDelta),
+            attrs.speedLimitsKph,
+        )
     }
 
-    private data class NodeAttrs(val stopLine: Boolean = false, val widthDelta: Int? = null)
+    private data class NodeAttrs(
+        val stopLine: Boolean = false,
+        val widthDelta: Int? = null,
+        val speedLimitsKph: List<Int> = emptyList(),
+    )
 
     private fun UperBitReader.nodeAttributeSetXY(): NodeAttrs {
         val hasExtension = bit()
@@ -275,6 +301,7 @@ object MapSpatDecoder {
         val hasElevation = bit()
         val hasRegional = bit()
         var stopLine = false
+        val speedLimits = LinkedHashSet<Int>()
         if (hasLocal) {
             repeat(sequenceLength(1, 8)) {
                 if (readExtensibleEnum(this, 12) == 1) stopLine = true
@@ -282,19 +309,32 @@ object MapSpatDecoder {
         }
         if (hasDisabled) repeat(sequenceLength(1, 8)) { readExtensibleEnum(this, 40) }
         if (hasEnabled) repeat(sequenceLength(1, 8)) { readExtensibleEnum(this, 40) }
-        if (hasData) repeat(sequenceLength(1, 8)) { laneDataAttribute() }
+        if (hasData) {
+            repeat(sequenceLength(1, 8)) { speedLimits += laneDataAttribute() }
+        }
         val width = if (hasWidth) signedConstrained(-512, 511) else null
         if (hasElevation) signedConstrained(-512, 511)
         if (hasRegional) regionalExtensions()
-        return NodeAttrs(stopLine, width)
+        return NodeAttrs(stopLine, width, speedLimits.toList())
     }
 
-    private fun UperBitReader.laneDataAttribute() {
-        when (readChoiceIndex(rootChoices = 6, extensible = true)) {
-            0 -> signedConstrained(-150, 150)
-            1, 2, 3 -> signedConstrained(-128, 127)
-            4 -> signedConstrained(-180, 180)
-            5 -> repeat(sequenceLength(1, 9)) { regulatorySpeedLimit() }
+    private fun UperBitReader.laneDataAttribute(): List<Int> {
+        return when (readChoiceIndex(rootChoices = 6, extensible = true)) {
+            0 -> {
+                signedConstrained(-150, 150)
+                emptyList()
+            }
+            1, 2, 3 -> {
+                signedConstrained(-128, 127)
+                emptyList()
+            }
+            4 -> {
+                signedConstrained(-180, 180)
+                emptyList()
+            }
+            5 -> List(sequenceLength(1, 9)) { regulatorySpeedLimit() }
+                .map { speedValueToKph(it) }
+                .filter { it > 0 }
             else -> throw IntersectionDecodeException("Unsupported LaneDataAttribute extension")
         }
     }
@@ -367,10 +407,13 @@ object MapSpatDecoder {
         return lat to lon
     }
 
-    private fun UperBitReader.regulatorySpeedLimit() {
+    private fun UperBitReader.regulatorySpeedLimit(): Int {
         readExtensibleEnum(this, 13)
-        constrained(0, 8191)
+        return constrained(0, 8191).toInt()
     }
+
+    /** SpeedLimit speedValue is in 0.01 m/s; the UI works in km/h. */
+    private fun speedValueToKph(value: Int): Int = Math.round(value * 0.036).toInt()
 
     private fun UperBitReader.regionalExtensions() {
         repeat(sequenceLength(1, 4)) {

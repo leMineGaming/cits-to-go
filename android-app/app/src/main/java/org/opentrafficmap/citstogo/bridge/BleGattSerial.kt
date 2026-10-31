@@ -9,6 +9,7 @@ import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothGattService
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
@@ -298,7 +299,7 @@ class BleGattSerial(private val context: Context) : CtgByteTransport {
             return
         }
         val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            gatt.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) == BluetoothGatt.GATT_SUCCESS
+            gatt.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) == BluetoothStatusCodes.SUCCESS
         } else {
             @Suppress("DEPRECATION")
             run {
@@ -366,7 +367,7 @@ class BleGattSerial(private val context: Context) : CtgByteTransport {
                         characteristic,
                         chunk,
                         BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT,
-                    ) == BluetoothGatt.GATT_SUCCESS
+                    ) == BluetoothStatusCodes.SUCCESS
                 } else {
                     @Suppress("DEPRECATION")
                     run {

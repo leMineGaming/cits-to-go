@@ -17,6 +17,10 @@ import org.opentrafficmap.citstogo.BuildConfig
 
 import org.opentrafficmap.citstogo.bridge.BridgeStatus
 import org.opentrafficmap.citstogo.bridge.ConnectionMode
+import org.opentrafficmap.citstogo.drive.config.DriveSettings
+import org.opentrafficmap.citstogo.drive.engine.DriveSnapshot
+import org.opentrafficmap.citstogo.drive.profile.ProfileState
+import org.opentrafficmap.citstogo.drive.safety.SafetyEvent
 import android.content.Context
 import android.content.res.Configuration
 import android.os.Build
@@ -298,9 +302,27 @@ fun CitsApp(
     onUseReleaseFirmware: () -> Unit,
     onFlashFirmware: () -> Unit,
     onSaveSettings: (String, String, String, String, SremProfile, String, String) -> Unit,
+    driveState: DriveSnapshot,
+    driveSettings: DriveSettings,
+    profileState: ProfileState,
+    driveHistory: List<SafetyEvent>,
+    locationPermissionGranted: Boolean,
+    driveHandlers: DriveUiHandlers,
 ) {
+    if (!driveSettings.onboardingCompleted) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            DriveOnboarding(
+                settings = driveSettings,
+                profileState = profileState,
+                locationPermissionGranted = locationPermissionGranted,
+                handlers = driveHandlers,
+            )
+        }
+        return
+    }
     val context = LocalContext.current
     var selectedPage by rememberSaveable { mutableStateOf(AppPage.Home) }
+    val navigationHandlers = driveHandlers.copy(onOpenPage = { page -> selectedPage = page })
     // Keeps the camera of the Map page while other pages are shown.
     val mapPageState = rememberSaveableStateHolder()
     // A station of the discovery table that the Map page shows until it is left.
@@ -382,7 +404,7 @@ fun CitsApp(
                         drawerContentColor = MaterialTheme.colorScheme.onSurface,
                     ) {
                         Text(
-                            "C-ITS to go",
+                            "C-ITS Drive Assist",
                             modifier = Modifier.padding(20.dp),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.SemiBold,
@@ -429,6 +451,14 @@ fun CitsApp(
                     .then(
                         if (
                             txPromptActive ||
+                            selectedPage == AppPage.Home ||
+                            selectedPage == AppPage.TrafficLight ||
+                            selectedPage == AppPage.SafetyAlerts ||
+                            selectedPage == AppPage.Connection ||
+                            selectedPage == AppPage.Profiles ||
+                            selectedPage == AppPage.DriveSettings ||
+                            selectedPage == AppPage.MapDebug ||
+                            selectedPage == AppPage.Diagnostics ||
                             selectedPage == AppPage.IntersectionView ||
                             selectedPage == AppPage.DiscoveredStations ||
                             selectedPage == AppPage.Logs ||
@@ -466,7 +496,14 @@ fun CitsApp(
                             modifier = Modifier.weight(1f),
                         )
                     } else when (selectedPage) {
-                        AppPage.Home -> HomePage(
+                        AppPage.Home -> DriveHomePage(
+                            state = driveState,
+                            profile = profileState.selected,
+                            locationPermissionGranted = locationPermissionGranted,
+                            handlers = navigationHandlers,
+                            modifier = Modifier.weight(1f),
+                        )
+                        AppPage.Capture -> HomePage(
                             devices = devices,
                             selectedDeviceName = selectedDeviceName,
                             onSelectDevice = onSelectDevice,
@@ -484,6 +521,43 @@ fun CitsApp(
                             vehicleProfile = sremProfile.takeIf { txApproved },
                             vehicleProfileTrailer = sremProfile in trailerProfiles,
                             onOpenVehicleProfile = { selectedPage = AppPage.CamBroadcast },
+                        )
+                        AppPage.TrafficLight -> DriveTrafficLightPage(
+                            state = driveState,
+                            modifier = Modifier.weight(1f),
+                        )
+                        AppPage.SafetyAlerts -> DriveSafetyPage(
+                            state = driveState,
+                            history = driveHistory,
+                            handlers = navigationHandlers,
+                            modifier = Modifier.weight(1f),
+                        )
+                        AppPage.Connection -> DriveConnectionPage(
+                            state = driveState,
+                            settings = driveSettings,
+                            handlers = navigationHandlers,
+                            modifier = Modifier.weight(1f),
+                        )
+                        AppPage.Profiles -> DriveProfilesPage(
+                            profileState = profileState,
+                            handlers = navigationHandlers,
+                            modifier = Modifier.weight(1f),
+                        )
+                        AppPage.DriveSettings -> DriveSettingsPage(
+                            state = driveState,
+                            settings = driveSettings,
+                            themeMode = themeMode,
+                            handlers = navigationHandlers,
+                            modifier = Modifier.weight(1f),
+                        )
+                        AppPage.MapDebug -> DriveMapDebugPage(
+                            state = driveState,
+                            modifier = Modifier.weight(1f),
+                        )
+                        AppPage.Diagnostics -> DriveDiagnosticsPage(
+                            state = driveState,
+                            handlers = navigationHandlers,
+                            modifier = Modifier.weight(1f),
                         )
                         AppPage.DiscoveredStations -> DiscoveredStationsPage(
                             stations = discoveredStations,

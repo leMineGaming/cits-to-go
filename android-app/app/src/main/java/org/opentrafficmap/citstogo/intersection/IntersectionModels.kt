@@ -38,6 +38,8 @@ data class MapIntersection(
     val laneWidthCm: Int?,
     val lanes: List<MapLane>,
     val receivedAtMs: Long,
+    /** Regulatory speed limits of the intersection in km/h, in the order MAPEM sent them. */
+    val speedLimitsKph: List<Int> = emptyList(),
 ) : Serializable {
     fun distanceTo(latitudeE7: Int, longitudeE7: Int): Double {
         val latMeters = (latitude - latitudeE7) * 0.011132
@@ -56,6 +58,8 @@ data class MapLane(
     val egress: Boolean,
     val nodes: List<LaneNode>,
     val connections: List<LaneConnection>,
+    /** Per-lane regulatory limits from the lane's node attributes, in km/h. */
+    val speedLimitsKph: List<Int> = emptyList(),
 ) : Serializable
 
 data class LaneNode(

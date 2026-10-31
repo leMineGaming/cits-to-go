@@ -48,18 +48,36 @@ class IntersectionStateStore {
             }
         }
 
-        val updatedKeys = when {
+        val updatedKeys = acceptDecoded(its, receivedAtMs)
+        lastKey = updatedKeys.lastOrNull() ?: lastKey
+        return closest(null)
+    }
+
+    /**
+     * Adds an already extracted ITS packet. The drive pipeline extracts once so it can hand the same
+     * packet to the intersection store and the DENM safety manager without decoding the envelope
+     * twice.
+     */
+    fun acceptDecoded(its: ItsPacket, receivedAtMs: Long = System.currentTimeMillis()): List<IntersectionKey> {
+        return when {
             its.destinationPort == MapSpatDecoder.BTP_PORT_MAPEM &&
                 its.messageId == MapSpatDecoder.MESSAGE_ID_MAPEM -> decodeMap(its, receivedAtMs)
             its.destinationPort == MapSpatDecoder.BTP_PORT_SPATEM &&
                 its.messageId == MapSpatDecoder.MESSAGE_ID_SPATEM -> decodeSpat(its, receivedAtMs)
             else -> emptyList()
         }
-        lastKey = updatedKeys.lastOrNull() ?: lastKey
-        return closest(null)
     }
 
     fun diagnostics(): IntersectionDiagnostics = diagnostics
+
+    /** Forgets every stored intersection, e.g. when switching the source or starting a replay. */
+    @Synchronized
+    fun clear() {
+        maps.clear()
+        spats.clear()
+        firstReceivedAtMs.clear()
+        lastKey = null
+    }
 
     fun closest(location: Location?): IntersectionSnapshot? {
         val key = location?.let { nearestKey(it) } ?: lastKey ?: maps.keys.lastOrNull() ?: spats.keys.lastOrNull()

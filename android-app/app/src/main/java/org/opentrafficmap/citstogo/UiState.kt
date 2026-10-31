@@ -70,7 +70,15 @@ enum class TxApprovalPromptState {
 }
 
 enum class AppPage(val title: String) {
-    Home("Home"),
+    Home("Drive"),
+    Capture("Capture"),
+    TrafficLight("Traffic Light"),
+    SafetyAlerts("Safety Alerts"),
+    Connection("C-ITS Connection"),
+    Profiles("Driver Profiles"),
+    DriveSettings("Drive Settings"),
+    MapDebug("MAPEM Debug"),
+    Diagnostics("Raw Diagnostics"),
     DiscoveredStations("Discovered Stations"),
     CamBroadcast("CAM Broadcast"),
     IntersectionView("Intersection View"),

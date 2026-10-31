@@ -65,11 +65,12 @@ internal object Tshark {
             val process = try {
                 builder.start()
             } catch (exception: IOException) {
-                fail(
+                // Optional external tool: the decoding tests that need it are reported as skipped
+                // rather than failing a machine without Wireshark.
+                throw org.junit.AssumptionViolatedException(
                     "tshark is required for packet tests. Install Wireshark CLI or set TSHARK: " +
                         exception.message,
                 )
-                error("unreachable")
             }
             // Read while tshark runs, so large dissections cannot fill the pipe and stall it.
             val output = CompletableFuture.supplyAsync { process.inputStream.bufferedReader().use { it.readText() } }
