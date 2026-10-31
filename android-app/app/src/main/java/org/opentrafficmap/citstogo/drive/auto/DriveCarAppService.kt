@@ -6,12 +6,8 @@ import androidx.car.app.validation.HostValidator
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
 import android.graphics.Rect
 import android.util.Log
-import android.view.Surface
 import androidx.car.app.AppManager
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
@@ -74,9 +70,7 @@ open class DriveCarScreen(carContext: CarContext) : Screen(carContext) {
      * leaving the host to report a generic error for a missing surface.
      */
     private val surfaceCallback = object : SurfaceCallback {
-        override fun onSurfaceAvailable(container: SurfaceContainer) {
-            drawPlaceholderSurface(container)
-        }
+        override fun onSurfaceAvailable(container: SurfaceContainer) = Unit
 
         override fun onVisibleAreaChanged(visibleArea: Rect) = Unit
         override fun onStableAreaChanged(stableArea: Rect) = Unit
@@ -116,36 +110,6 @@ open class DriveCarScreen(carContext: CarContext) : Screen(carContext) {
         runCatching {
             carContext.getCarService(AppManager::class.java).setSurfaceCallback(callback)
         }.onFailure { Log.w(TAG, "Unable to register the Android Auto surface callback", it) }
-    }
-
-    private fun drawPlaceholderSurface(container: SurfaceContainer) {
-        val surface = container.surface ?: return
-        var canvas: Canvas? = null
-        try {
-            canvas = surface.lockCanvas(null)
-            canvas.drawColor(Color.rgb(20, 24, 28))
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.rgb(72, 82, 92)
-                textSize = container.height.coerceAtLeast(1) * 0.08f
-                textAlign = Paint.Align.CENTER
-            }
-            canvas.drawText(
-                "C-ITS",
-                container.width / 2f,
-                container.height / 2f,
-                paint,
-            )
-        } catch (e: Exception) {
-            Log.w(TAG, "Unable to draw the Android Auto placeholder surface", e)
-        } finally {
-            if (canvas != null) {
-                try {
-                    surface.unlockCanvasAndPost(canvas)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Unable to post the Android Auto placeholder surface", e)
-                }
-            }
-        }
     }
 
     override fun onGetTemplate(): Template {

@@ -13,7 +13,7 @@ Last updated: 2026-10-31
 | Unsigned release APK | `./gradlew :app:assembleRelease` | **PASS** — `android-app/app/build/outputs/apk/release/app-release-unsigned.apk` (29 MB) |
 | Release App Bundle | `./gradlew :app:bundleRelease` | **PASS** — `android-app/app/build/outputs/bundle/release/app-release.aab` (29 MB) |
 | Instrumented tests | `./gradlew :app:connectedDebugAndroidTest` (API 36 emulator) | **PASS — 30 tests, 0 failed** |
-| Android Auto | Desktop Head Unit / vehicle | **MANUAL REQUIRED** — see README test checklist. |
+| Android Auto | DHU on physical Samsung SM-S938B | **PASS** — app opens and renders the stable C-ITS card; host log confirms `Min Car Api Level: [1]` and no template error. |
 
 The 53 skipped unit tests are the pre-existing recorded-field-capture and Wireshark validation tests.
 The PCAP fixtures are not present in this checkout and `tshark` is not installed. The test helpers now
@@ -87,7 +87,7 @@ Kotlin 2.3.21.
 - [x] Phone dashboard independent of Android Auto.
 
 ### Engineering and delivery
-- [x] Version bump to 2.63.1 / versionCode 127.
+- [x] Version bump to 2.63.2 / versionCode 128.
 - [x] CI workflow (tests, lint, debug/release builds, artifacts, reports).
 - [x] Release workflow (tag/manual, tests, optional signing, AAB, notes, SHA256SUMS).
 - [x] README rewritten for the complete product.
@@ -115,8 +115,10 @@ Kotlin 2.3.21.
 
 - Android Auto must be validated on the DHU or a vehicle; head-unit host policy may refuse sideloaded
   navigation-category apps. The missing navigation-template permissions that caused the head-unit
-  "unknown error occurred" path are fixed; capture `adb logcat -s DriveCarApp` if a host still refuses
-  the app.
+  "unknown error occurred" path are fixed. The actual host rejection was the missing
+  `androidx.car.app.minCarApiLevel` metadata at `<application>` level; it is now placed there and
+  verified on a physical device with the Desktop Head Unit. Capture `adb logcat -s DriveCarApp` or the
+  broader CarApp logs if a host still refuses the app.
 - DENM future/unknown à-la-carte extension additions are not interpreted; the standard root fields
   are normalised and a partial-decode marker is retained if a future extension cannot be read.
 - MAPEM lane speed limits are used from node attributes; if a receiver omits them, the intersection
@@ -129,7 +131,7 @@ Kotlin 2.3.21.
 ## Next steps
 
 1. Re-run `connectedDebugAndroidTest` on the target API 26+ device/emulator (API 36 emulator run passed).
-2. Run the Android Auto DHU checklist with a live or simulated feed.
+2. Run the Android Auto checklist in a real vehicle with a live or simulated feed.
 3. Validate against the user's actual receiver framing and capture a fixture for CI.
 4. Optionally add hardware-position ingestion; DENM à-la-carte root normalisation is complete.
 5. If distributing publicly: category/host review, privacy review and legal review.

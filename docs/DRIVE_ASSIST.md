@@ -166,7 +166,9 @@ background operation.
 
 `DriveCarAppService` returns official templates only and declares the required Car App permissions
 `androidx.car.app.NAVIGATION_TEMPLATES`, `androidx.car.app.MAP_TEMPLATES` and
-`androidx.car.app.ACCESS_SURFACE`:
+`androidx.car.app.ACCESS_SURFACE`. `androidx.car.app.minCarApiLevel` is a `<application>` metadata
+entry; `CarAppService.getAppInfo()` reads it from application info, and placing it on the service
+causes the host to reject the app with `Min API level not declared in manifest`:
 
 - The main driving screen is always a stable `NavigationTemplate` with `MessageInfo` and a status
   action. Keeping the template type stable prevents template-quota/type-switch errors.

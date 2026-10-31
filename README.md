@@ -307,7 +307,8 @@ dashboard.
 
 The manifest declares the official `androidx.car.app.NAVIGATION_TEMPLATES`,
 `androidx.car.app.MAP_TEMPLATES` and `androidx.car.app.ACCESS_SURFACE` permissions required for the
-navigation-category templates. The car screen keeps a stable `NavigationTemplate` while driving
+navigation-category templates. `androidx.car.app.minCarApiLevel` is declared on the `<application>`
+element, where `CarAppService.getAppInfo()` reads it. The car screen keeps a stable `NavigationTemplate` while driving
 rather than switching template types, and falls back to a valid `MessageTemplate` if a template
 cannot be built. This avoids the host's "unknown error" path caused by missing navigation-template
 permissions or repeated template-type changes.
@@ -448,7 +449,7 @@ Never commit a keystore or passwords. `versionCode` defaults to the value in
 | Wrong traffic light | Vehicle may be on an adjacent lane; check MAPEM Debug matched lane and signal group. The app intentionally shows nothing when unsure |
 | Alerts do not notify | Profile category enabled, notification permission, relevance distance, event ahead/behind filter, quiet mode |
 | Android Auto does not show the app | Developer mode + unknown sources, DHU connected, host policy; see manual checklist |
-| Android Auto shows "unknown error occurred" | Reinstall the latest build (navigation-template permissions were added), keep the phone app/service updated, and capture `adb logcat -s DriveCarApp` plus the Android Auto/Play Services log. The car screen now falls back to a valid message template instead of crashing. |
+| Android Auto shows "unknown error occurred" | Reinstall the latest build. The host reads `androidx.car.app.minCarApiLevel` from `<application>`; placing it on the service causes the exact `Min API level not declared in manifest` rejection. Also capture `adb logcat -s DriveCarApp` and `adb logcat | grep -E 'CarApp.H|Min API'` if the host still refuses the app. |
 | Background stops | Disable battery optimisation for the app, keep the foreground notification, enable background operation |
 | USB capture issues | See the original CITS-to-go troubleshooting section below |
 
