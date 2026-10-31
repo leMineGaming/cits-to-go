@@ -11,6 +11,7 @@ Last updated: 2026-10-31
 | Android lint | `./gradlew :app:lintDebug` | **PASS** |
 | Debug APK | `./gradlew :app:assembleDebug` | **PASS** — `android-app/app/build/outputs/apk/debug/app-debug.apk` (37 MB) |
 | Unsigned release APK | `./gradlew :app:assembleRelease` | **PASS** — `android-app/app/build/outputs/apk/release/app-release-unsigned.apk` (29 MB) |
+| Release App Bundle | `./gradlew :app:bundleRelease` | **PASS** — `android-app/app/build/outputs/bundle/release/app-release.aab` (29 MB) |
 | Instrumented tests | `./gradlew :app:connectedDebugAndroidTest` (API 36 emulator) | **PASS — 30 tests, 0 failed** |
 | Android Auto | Desktop Head Unit / vehicle | **MANUAL REQUIRED** — see README test checklist. |
 
@@ -19,7 +20,7 @@ The PCAP fixtures are not present in this checkout and `tshark` is not installed
 report those as JUnit assumptions (skipped) instead of false failures; they still run when the
 fixtures/tool are available. All new Drive Assist tests run.
 
-Environment used: JDK 17.0.21, Android SDK platform 35, build-tools 35.0.0, Gradle 8.14.4, AGP 8.7.3,
+Environment used: JDK 17.0.21, Android SDK platform 35, build-tools 35.0.0, Gradle 8.14.4, AGP 8.13.2,
 Kotlin 2.3.21.
 
 ## Completed features
@@ -78,13 +79,15 @@ Kotlin 2.3.21.
 ### Android Auto
 - [x] Official Car App Library 1.7.0 dependency.
 - [x] `CarAppService`, session, screen, manifest service/category/metadata.
-- [x] NavigationTemplate while driving, PaneTemplate status, MessageTemplate critical hazard.
+- [x] NavigationTemplate while driving, PaneTemplate status, MessageTemplate fallback.
+- [x] Required Car App permissions (`NAVIGATION_TEMPLATES`, `MAP_TEMPLATES`, `ACCESS_SURFACE`) declared.
+- [x] Stable car template type, throttled refresh and logcat fallback for host-safe rendering.
 - [x] Car notification extension for alerts.
 - [x] Auto-refresh of the car screen while started.
 - [x] Phone dashboard independent of Android Auto.
 
 ### Engineering and delivery
-- [x] Version bump to 2.63.0 / versionCode 126.
+- [x] Version bump to 2.63.1 / versionCode 127.
 - [x] CI workflow (tests, lint, debug/release builds, artifacts, reports).
 - [x] Release workflow (tag/manual, tests, optional signing, AAB, notes, SHA256SUMS).
 - [x] README rewritten for the complete product.
@@ -107,15 +110,13 @@ Kotlin 2.3.21.
 - **Navigation category with honest scope.** The app uses NavigationTemplate for glanceable driving
   status but explicitly does not claim turn-by-turn routing or a head-unit map.
 - **Test fixtures.** Missing PCAP/tshark content is reported as skipped, not silently passed or failed.
-- **Lint workaround.** Three Compose runtime detectors (`FlowOperatorInvokedInComposition`,
-  `RememberInComposition`, `FrequentlyChangingValue`, plus `UnrememberedState`) crash inside the
-  Kotlin 2.3 analysis API in this toolchain. They are disabled; all other lint checks run and pass.
-  The crash is a detector/toolchain incompatibility, not an app diagnostic.
 
 ## Known limitations
 
 - Android Auto must be validated on the DHU or a vehicle; head-unit host policy may refuse sideloaded
-  navigation-category apps.
+  navigation-category apps. The missing navigation-template permissions that caused the head-unit
+  "unknown error occurred" path are fixed; capture `adb logcat -s DriveCarApp` if a host still refuses
+  the app.
 - DENM future/unknown à-la-carte extension additions are not interpreted; the standard root fields
   are normalised and a partial-decode marker is retained if a future extension cannot be read.
 - MAPEM lane speed limits are used from node attributes; if a receiver omits them, the intersection

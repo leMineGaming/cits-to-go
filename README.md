@@ -305,6 +305,13 @@ dashboard.
 4. Connect the phone over USB, run `adb forward tcp:5277 tcp:5277`, then start the DHU.
 5. Start the drive service in the app and open **C-ITS Drive Assist** on the head unit.
 
+The manifest declares the official `androidx.car.app.NAVIGATION_TEMPLATES`,
+`androidx.car.app.MAP_TEMPLATES` and `androidx.car.app.ACCESS_SURFACE` permissions required for the
+navigation-category templates. The car screen keeps a stable `NavigationTemplate` while driving
+rather than switching template types, and falls back to a valid `MessageTemplate` if a template
+cannot be built. This avoids the host's "unknown error" path caused by missing navigation-template
+permissions or repeated template-type changes.
+
 Because the app is not distributed through Play, `DriveCarAppService` uses the documented
 `HostValidator.ALLOW_ALL_HOSTS_VALIDATOR` testing validator. Host policy still applies: some vehicles
 or head units refuse apps that Google has not approved. This is a host restriction, not a supported
@@ -441,6 +448,7 @@ Never commit a keystore or passwords. `versionCode` defaults to the value in
 | Wrong traffic light | Vehicle may be on an adjacent lane; check MAPEM Debug matched lane and signal group. The app intentionally shows nothing when unsure |
 | Alerts do not notify | Profile category enabled, notification permission, relevance distance, event ahead/behind filter, quiet mode |
 | Android Auto does not show the app | Developer mode + unknown sources, DHU connected, host policy; see manual checklist |
+| Android Auto shows "unknown error occurred" | Reinstall the latest build (navigation-template permissions were added), keep the phone app/service updated, and capture `adb logcat -s DriveCarApp` plus the Android Auto/Play Services log. The car screen now falls back to a valid message template instead of crashing. |
 | Background stops | Disable battery optimisation for the app, keep the foreground notification, enable background operation |
 | USB capture issues | See the original CITS-to-go troubleshooting section below |
 

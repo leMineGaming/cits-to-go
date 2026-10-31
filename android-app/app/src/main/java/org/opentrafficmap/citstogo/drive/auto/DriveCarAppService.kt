@@ -6,8 +6,17 @@ import androidx.car.app.validation.HostValidator
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Rect
+import android.util.Log
+import android.view.Surface
+import androidx.car.app.AppManager
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
+import androidx.car.app.SurfaceCallback
+import androidx.car.app.SurfaceContainer
 import androidx.car.app.model.Action
 import androidx.car.app.model.ActionStrip
 import androidx.car.app.model.CarColor
@@ -57,9 +66,33 @@ open class DriveCarScreen(carContext: CarContext) : Screen(carContext) {
     protected val engine: DriveEngine
         get() = (carContext.applicationContext as CitsApplication).container.driveEngine
     private val handler = Handler(Looper.getMainLooper())
+    private var lastFingerprint: String? = null
+
+    /**
+     * NavigationTemplate is a map-backed template. The app does not have a turn-by-turn map, but
+     * providing a valid surface callback keeps the official navigation contract intact instead of
+     * leaving the host to report a generic error for a missing surface.
+     */
+    private val surfaceCallback = object : SurfaceCallback {
+        override fun onSurfaceAvailable(container: SurfaceContainer) {
+            drawPlaceholderSurface(container)
+        }
+
+        override fun onVisibleAreaChanged(visibleArea: Rect) = Unit
+        override fun onStableAreaChanged(stableArea: Rect) = Unit
+        override fun onSurfaceDestroyed(container: SurfaceContainer) = Unit
+        override fun onScroll(distanceX: Float, distanceY: Float) = Unit
+        override fun onFling(velocityX: Float, velocityY: Float) = Unit
+        override fun onScale(focusX: Float, focusY: Float, scaleFactor: Float) = Unit
+        override fun onClick(x: Float, y: Float) = Unit
+    }
     private val refresh = object : Runnable {
         override fun run() {
-            invalidate()
+            val fingerprint = fingerprint(engine.current())
+            if (fingerprint != lastFingerprint) {
+                lastFingerprint = fingerprint
+                invalidate()
+            }
             handler.postDelayed(this, REFRESH_INTERVAL_MS)
         }
     }
@@ -67,34 +100,74 @@ open class DriveCarScreen(carContext: CarContext) : Screen(carContext) {
     init {
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
+                setSurfaceCallback(surfaceCallback)
                 handler.removeCallbacks(refresh)
                 handler.postDelayed(refresh, REFRESH_INTERVAL_MS)
             }
 
             override fun onStop(owner: LifecycleOwner) {
                 handler.removeCallbacks(refresh)
+                setSurfaceCallback(null)
             }
         })
     }
 
+    private fun setSurfaceCallback(callback: SurfaceCallback?) {
+        runCatching {
+            carContext.getCarService(AppManager::class.java).setSurfaceCallback(callback)
+        }.onFailure { Log.w(TAG, "Unable to register the Android Auto surface callback", it) }
+    }
+
+    private fun drawPlaceholderSurface(container: SurfaceContainer) {
+        val surface = container.surface ?: return
+        var canvas: Canvas? = null
+        try {
+            canvas = surface.lockCanvas(null)
+            canvas.drawColor(Color.rgb(20, 24, 28))
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.rgb(72, 82, 92)
+                textSize = container.height.coerceAtLeast(1) * 0.08f
+                textAlign = Paint.Align.CENTER
+            }
+            canvas.drawText(
+                "C-ITS",
+                container.width / 2f,
+                container.height / 2f,
+                paint,
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to draw the Android Auto placeholder surface", e)
+        } finally {
+            if (canvas != null) {
+                try {
+                    surface.unlockCanvasAndPost(canvas)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Unable to post the Android Auto placeholder surface", e)
+                }
+            }
+        }
+    }
+
     override fun onGetTemplate(): Template {
-        val state = engine.current()
-        val critical = state.alerts.firstOrNull { it.priority == AlertPriority.Critical }
-        if (critical != null && critical.distanceM != null && critical.distanceM!! < 250.0) {
-            return criticalTemplate(state, critical)
+        return try {
+            drivingTemplate(engine.current())
+        } catch (e: Exception) {
+            // The host shows a generic "unknown error" if a template throws. Keep a valid,
+            // supported template on screen and leave the detailed cause in logcat.
+            Log.e(TAG, "Unable to build Android Auto template", e)
+            MessageTemplate.Builder("C-ITS Drive Assist\nDriving status is temporarily unavailable.")
+                .setTitle("C-ITS Drive Assist")
+                .setHeaderAction(Action.APP_ICON)
+                .build()
         }
-        if (state.intersection != null || state.glosa != null) {
-            return navigationTemplate(state)
-        }
-        return mainTemplate(state)
     }
 
     /**
      * The driving view uses the supported NavigationTemplate expected from a navigation-category
-     * app while a junction or recommendation is active. A blank map surface is intentional: this
-     * app has no map provider on the head unit, and it must not fake turn-by-turn navigation.
+     * app. The template type is kept stable so the host never has to switch task types or exhaust
+     * its template quota; the map surface stays empty because this app has no head-unit map.
      */
-    private fun navigationTemplate(state: DriveSnapshot): Template {
+    private fun drivingTemplate(state: DriveSnapshot): Template {
         val details = Action.Builder()
             .setTitle("Status")
             .setOnClickListener {
@@ -102,25 +175,35 @@ open class DriveCarScreen(carContext: CarContext) : Screen(carContext) {
                 null
             }
             .build()
-        val infoText = buildString {
-            state.signal?.let {
-                append(if (it.isGreen) "Green" else if (it.isRed) "Red" else "Transition")
-                append(" · group ${it.signalGroup}")
-                append(" · ")
+        val refreshAction = Action.Builder()
+            .setTitle("Refresh")
+            .setOnClickListener {
+                invalidate()
+                null
             }
-            state.glosa?.targetSpeedKph?.let { append("${it.toInt()} km/h · ") }
-            state.intersection?.lane?.distanceToStopLineM?.let { append("${it.toInt()} m to stop line") }
-            state.primaryAlert?.let { append(" · ${it.title}") }
-        }.ifBlank { "Waiting for C-ITS data" }
+            .build()
+        val infoText = buildString {
+            append(connectionLabel(state))
+            state.signal?.let {
+                append(" · ")
+                append(if (it.isGreen) "Green" else if (it.isRed) "Red" else "Transition")
+                append(" SG ${it.signalGroup}")
+                it.conservativeEndSeconds?.let { seconds -> append(" ${seconds.toInt()}s") }
+            }
+            state.glosa?.targetSpeedKph?.let { append(" · ${it.toInt()} km/h") }
+            state.intersection?.lane?.distanceToStopLineM?.let { append(" · ${it.toInt()} m") }
+            state.primaryAlert?.let { append(" · ${it.priority.name}: ${it.title}") }
+        }
         val info = MessageInfo.Builder("C-ITS Drive Assist")
             .setText(infoText)
             .build()
         return NavigationTemplate.Builder()
             .setNavigationInfo(info)
-            .setActionStrip(ActionStrip.Builder().addAction(details).build())
+            .setActionStrip(ActionStrip.Builder().addAction(details).addAction(refreshAction).build())
             .build()
     }
 
+    /** Status detail is a pushed screen reached only by an explicit driver action. */
     protected fun mainTemplate(state: DriveSnapshot): Template {
         val rows = mutableListOf<Row>()
         rows += row("C-ITS link", connectionLabel(state), state.hasActiveConnection)
@@ -154,38 +237,29 @@ open class DriveCarScreen(carContext: CarContext) : Screen(carContext) {
         if (rows.isEmpty()) {
             rows += row("C-ITS Drive Assist", "Waiting for C-ITS data", false)
         }
-        val refresh = Action.Builder()
-            .setTitle("Refresh")
-            .setOnClickListener {
-                invalidate()
-                null
-            }
-            .build()
         return PaneTemplate.Builder(
             Pane.Builder().apply { rows.forEach { addRow(it) } }.build(),
         )
             .setTitle("C-ITS Drive Assist")
             .setHeaderAction(Action.APP_ICON)
-            .setActionStrip(ActionStrip.Builder().addAction(refresh).build())
             .build()
     }
 
-    private fun criticalTemplate(state: DriveSnapshot, alert: SafetyEvent): Template {
-        val distance = alert.distanceM?.let { "${it.toInt()} m · " }.orEmpty()
-        return MessageTemplate.Builder("${alert.title}\n$distance${alert.description}")
-            .setTitle("Safety alert")
-            .setHeaderAction(Action.APP_ICON)
-            .addAction(
-                Action.Builder()
-                    .setTitle("Show status")
-                    .setOnClickListener {
-                        invalidate()
-                        null
-                    }
-                    .build(),
-            )
-            .build()
-    }
+    private fun fingerprint(state: DriveSnapshot): String = listOf(
+        state.connection.phase.name,
+        state.connection.connected,
+        state.simulated,
+        state.signal?.state?.name,
+        state.signal?.signalGroup,
+        state.signal?.conservativeEndSeconds?.div(5),
+        state.glosa?.targetSpeedKph?.toInt(),
+        state.glosaSuppressedBy,
+        state.primaryAlert?.actionId,
+        state.primaryAlert?.status,
+        state.intersection?.lane?.distanceToStopLineM?.div(10)?.toInt(),
+        state.intersection?.lane?.laneId,
+        state.position?.speedKph?.toInt(),
+    ).joinToString("|")
 
     private fun row(title: String, text: String, positive: Boolean): Row =
         Row.Builder()
@@ -203,10 +277,10 @@ open class DriveCarScreen(carContext: CarContext) : Screen(carContext) {
             .build()
 
     private fun connectionLabel(state: DriveSnapshot): String = when {
-        state.simulated -> "Simulation (offline data)"
+        state.simulated -> "Simulation"
         !state.networkAvailable -> "No network"
-        state.connection.connected -> "Connected · ${state.connection.address}"
-        else -> state.connection.phase.label + (state.connection.lastError?.let { " · $it" }.orEmpty())
+        state.connection.connected -> "Connected"
+        else -> state.connection.phase.label
     }
 
     private fun alertRowText(alert: SafetyEvent): String = buildString {
@@ -223,7 +297,8 @@ open class DriveCarScreen(carContext: CarContext) : Screen(carContext) {
     }
 
     companion object {
-        private const val REFRESH_INTERVAL_MS = 1_000L
+        private const val TAG = "DriveCarApp"
+        private const val REFRESH_INTERVAL_MS = 2_000L
     }
 }
 

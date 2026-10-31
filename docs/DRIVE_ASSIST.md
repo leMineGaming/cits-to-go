@@ -164,16 +164,21 @@ background operation.
 
 ## Android Auto
 
-`DriveCarAppService` returns official templates only:
+`DriveCarAppService` returns official templates only and declares the required Car App permissions
+`androidx.car.app.NAVIGATION_TEMPLATES`, `androidx.car.app.MAP_TEMPLATES` and
+`androidx.car.app.ACCESS_SURFACE`:
 
-- `MessageTemplate` for a critical hazard within 250 m,
-- `NavigationTemplate` with `MessageInfo` + a status action while driving data is active,
-- `PaneTemplate` for the detailed status otherwise.
+- The main driving screen is always a stable `NavigationTemplate` with `MessageInfo` and a status
+  action. Keeping the template type stable prevents template-quota/type-switch errors.
+- `DriveCarStatusScreen`, reached only by the driver's status action, uses `PaneTemplate`.
+- If template construction throws, the screen logs the cause under `DriveCarApp` and returns a valid
+  `MessageTemplate` fallback instead of letting the host show its generic "unknown error".
 
-`DriveCarStatusScreen` is pushed by the status action. A 1 s invalidation timer updates the head unit
-while the screen is started. Car notifications use `CarAppExtender`. No custom map surface is
-provided, because the app has no head-unit map provider and must not pretend to offer turn-by-turn
-navigation.
+The screen refreshes only when a coarse state fingerprint changes (signal, advisory, primary alert,
+connection, speed/distance buckets) and at a 2 s minimum interval, rather than invalidating every
+second. It registers the official `SurfaceCallback` required by map-backed navigation templates and
+draws a neutral placeholder surface; the app has no head-unit map provider and does not pretend to
+offer turn-by-turn navigation. Car notifications use `CarAppExtender`.
 
 `HostValidator.ALLOW_ALL_HOSTS_VALIDATOR` is used because the app is sideloaded/personal-use; it is
 the documented testing validator, not a bypass of template restrictions.

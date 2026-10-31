@@ -1,6 +1,7 @@
 package org.opentrafficmap.citstogo
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -823,13 +824,14 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
 
+    @SuppressLint("WrongConstant") // The persisted flags are explicitly limited to read/write grants below.
     private fun handleDocumentResult(result: ActivityResult, onUriSelected: (Uri) -> Unit) {
         if (result.resultCode != RESULT_OK) return
         val data = result.data ?: return
         val uri = data.data ?: return
         val flags = data.flags and
             (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-        runCatching { contentResolver.takePersistableUriPermission(uri, flags) }
+        if (flags != 0) runCatching { contentResolver.takePersistableUriPermission(uri, flags) }
         onUriSelected(uri)
     }
 
@@ -1688,6 +1690,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         startIntersectionLocationUpdates()
     }
 
+    @SuppressLint("MissingPermission") // hasLocationPermission() is checked immediately below.
     private fun startIntersectionLocationUpdates() {
         if (!hasLocationPermission() || intersectionLocationActive) return
         var requestedProvider = false
