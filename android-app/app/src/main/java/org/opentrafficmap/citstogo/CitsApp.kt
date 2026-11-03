@@ -287,6 +287,9 @@ fun CitsApp(
     autoRecordFolderLabel: String,
     onChooseAutoRecordFolder: () -> Unit,
     txApprovalPromptState: TxApprovalPromptState,
+    txShakeEnabled: Boolean,
+    onTxShakeEnabledChange: (Boolean) -> Unit,
+    onOpenTxApproval: () -> Unit,
     onGrantTxApproval: () -> Unit,
     onDismissTxApproval: () -> Unit,
     onFinishTxApproval: () -> Unit,
@@ -308,6 +311,8 @@ fun CitsApp(
     driveHistory: List<SafetyEvent>,
     locationPermissionGranted: Boolean,
     driveHandlers: DriveUiHandlers,
+    requestedPage: AppPage? = null,
+    onRequestedPageHandled: () -> Unit = {},
 ) {
     if (!driveSettings.onboardingCompleted) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -372,6 +377,13 @@ fun CitsApp(
         if (selectedPage !in visiblePages) selectedPage = AppPage.Home
     }
     
+    LaunchedEffect(requestedPage) {
+        if (requestedPage != null) {
+            selectedPage = requestedPage
+            onRequestedPageHandled()
+        }
+    }
+
     LaunchedEffect(selectedPage) {
         onIntersectionLocationActiveChange(selectedPage == AppPage.IntersectionView || selectedPage == AppPage.Map)
         onFlashingPageActive(selectedPage == AppPage.Flashing)
@@ -500,6 +512,7 @@ fun CitsApp(
                             state = driveState,
                             profile = profileState.selected,
                             locationPermissionGranted = locationPermissionGranted,
+                            captureRunning = status.running,
                             handlers = navigationHandlers,
                             modifier = Modifier.weight(1f),
                         )
@@ -634,6 +647,7 @@ fun CitsApp(
                             state = flashingState,
                             log = flashingLog,
                             bridgeRunning = status.running,
+                            firmwareStatistics = status.firmwareStatistics,
                             onRetryRelease = onRetryFirmwareRelease,
                             onSelectRelease = onSelectFirmwareRelease,
                             onChooseCustomFirmware = onChooseCustomFirmware,
@@ -652,6 +666,9 @@ fun CitsApp(
                             vehicleDimensions = vehicleDimensions,
                             onSaveVehicleDimensions = onSaveVehicleDimensions,
                             txApproved = txApproved,
+                            txShakeEnabled = txShakeEnabled,
+                            onTxShakeEnabledChange = onTxShakeEnabledChange,
+                            onOpenTxApproval = onOpenTxApproval,
                             sremProfile = sremProfile,
                             bridgeRunning = status.running,
                             bluetoothEnrollmentRunning = bluetoothEnrollmentRunning,

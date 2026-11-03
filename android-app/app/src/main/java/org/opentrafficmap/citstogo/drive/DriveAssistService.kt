@@ -21,6 +21,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.car.app.notification.CarAppExtender
@@ -77,6 +78,7 @@ class DriveAssistService : Service() {
     private var tickerJob: Job? = null
     private var lastNotificationFingerprint = ""
     private val insertedHistory = ConcurrentHashMap<String, Boolean>()
+    private var initializationFailed = false
 
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
@@ -102,22 +104,32 @@ class DriveAssistService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        container = (application as CitsApplication).container
-        engine = container.driveEngine
-        locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
-        connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
-        audio = AlertAudioPlayer(this)
-        createNotificationChannels()
-        serviceScope.launch(Dispatchers.IO) {
-            engine.restoreHistory(container.eventHistory.recent(200))
+        try {
+            container = (application as CitsApplication).container
+            engine = container.driveEngine
+            locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
+            connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+            audio = AlertAudioPlayer(this)
+            createNotificationChannels()
+            serviceScope.launch(Dispatchers.IO) {
+                engine.restoreHistory(container.eventHistory.recent(200))
+            }
+            observeEngine()
+            observeSettings()
+            observeNotifications()
+            registerNetworkCallback()
+        } catch (e: Exception) {
+            initializationFailed = true
+            Log.e(TAG, "Unable to initialise the drive service", e)
+            stopSelf()
         }
-        observeEngine()
-        observeSettings()
-        observeNotifications()
-        registerNetworkCallback()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (initializationFailed) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         when (intent?.action) {
             ACTION_STOP -> {
                 stopSelf()
@@ -309,22 +321,42 @@ class DriveAssistService : Service() {
 
     private fun startForegroundSafely(state: DriveSnapshot) {
         val notification = buildForegroundNotification(state)
-        val locationGranted = ContextCompat.checkSelfPermission(
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            startForeground(FOREGROUND_NOTIFICATION_ID, notification)
+            return
+        }
+
+        // Start with the type that has no runtime permission requirement. A coarse-only or
+        // background-restricted location grant can make a LOCATION foreground service throw a
+        // SecurityException on some vendor builds; the link itself must still come up and show a
+        // notification. Location is promoted below only when the full fine grant is present.
+        try {
+            startForeground(
+                FOREGROUND_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Unable to start the drive foreground service", e)
+            stopSelf()
+            return
+        }
+
+        val fineLocationGranted = ContextCompat.checkSelfPermission(
             this,
             Manifest.permission.ACCESS_FINE_LOCATION,
-        ) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
         ) == PackageManager.PERMISSION_GRANTED
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val type = if (locationGranted) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            } else {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        if (fineLocationGranted) {
+            runCatching {
+                startForeground(
+                    FOREGROUND_NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION,
+                )
+            }.onFailure {
+                Log.w(TAG, "Location foreground-service promotion failed; continuing with data sync", it)
             }
-            startForeground(FOREGROUND_NOTIFICATION_ID, notification, type)
-        } else {
-            startForeground(FOREGROUND_NOTIFICATION_ID, notification)
         }
     }
 
@@ -480,6 +512,7 @@ class DriveAssistService : Service() {
     }
 
     companion object {
+        private const val TAG = "DriveAssistService"
         const val ACTION_START = "org.opentrafficmap.citstogo.action.DRIVE_START"
         const val ACTION_STOP = "org.opentrafficmap.citstogo.action.DRIVE_STOP"
         const val ACTION_RECONNECT = "org.opentrafficmap.citstogo.action.DRIVE_RECONNECT"

@@ -83,11 +83,16 @@ Kotlin 2.3.21.
 - [x] Required Car App permissions (`NAVIGATION_TEMPLATES`, `MAP_TEMPLATES`, `ACCESS_SURFACE`) declared.
 - [x] Stable car template type, throttled refresh and logcat fallback for host-safe rendering.
 - [x] Car notification extension for alerts.
+- [x] Drive and Capture share one engine: USB/BLE capture packets and location now feed the Drive dashboard.
+- [x] Drive foreground service starts with data-sync first, promotes location only with a fine grant, and logs/start failures instead of crashing.
+- [x] USB attach resets the app to Home instead of restoring the Flashing page.
+- [x] Flashing page shows last flashed firmware, app-version comparison, and chip CTG1 telemetry status.
+- [x] Shake-to-open TX approval is an off-by-default setting; an explicit "Open TX approval" button remains available.
 - [x] Auto-refresh of the car screen while started.
 - [x] Phone dashboard independent of Android Auto.
 
 ### Engineering and delivery
-- [x] Version bump to 2.63.2 / versionCode 128.
+- [x] Version bump to 2.63.4 / versionCode 130.
 - [x] CI workflow (tests, lint, debug/release builds, artifacts, reports).
 - [x] Release workflow (tag/manual, tests, optional signing, AAB, notes, SHA256SUMS).
 - [x] README rewritten for the complete product.
@@ -124,7 +129,9 @@ Kotlin 2.3.21.
 - MAPEM lane speed limits are used from node attributes; if a receiver omits them, the intersection
   limit or the profile/default limit applies.
 - Hardware-provided positioning is not wired to a specific receiver protocol; the engine accepts
-  position updates from any source.
+  position updates from any source. The current ESP32-C5 firmware does not report its own build
+  version, so the flashing page compares the last release written by this app and shows chip CTG1
+  telemetry; actual firmware version reporting needs a firmware protocol field.
 - The TCP protocol is not standardised; proprietary frame headers need a decoder adapter.
 - Field-capture/tshark tests are skipped in this environment.
 

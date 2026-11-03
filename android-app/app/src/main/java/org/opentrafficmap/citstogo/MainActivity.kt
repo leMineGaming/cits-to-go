@@ -151,6 +151,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
      */
     private var autoStartRecordAfterPermission: Boolean? = null
     private var txApprovalPromptState by mutableStateOf(TxApprovalPromptState.Hidden)
+    private var txShakeEnabled by mutableStateOf(false)
     private var enableCamAfterPermission = false
     private var wantsIntersectionLocation = false
     private var intersectionLocationActive = false
@@ -179,6 +180,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var driveProfileState by mutableStateOf(ProfileState.default())
     private var driveHistory by mutableStateOf<List<SafetyEvent>>(emptyList())
     private var driveLocationPermissionGranted by mutableStateOf(false)
+    /** A page the system launch asked to show, e.g. reset to Home when a receiver is plugged in. */
+    private var requestedPage by mutableStateOf<AppPage?>(null)
+    private var startDriveAfterNotificationPermission = false
 
     private val locationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -219,7 +223,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { }
+    ) {
+        if (startDriveAfterNotificationPermission) {
+            startDriveAfterNotificationPermission = false
+            startDriveServiceNow()
+        }
+    }
 
     private val driveLocationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -227,7 +236,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         driveLocationPermissionGranted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (driveLocationPermissionGranted) {
-            DriveAssistService.start(this)
+            startDriveService()
         }
     }
 
@@ -263,7 +272,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             }.onSuccess { document ->
                 appContainer.settingsRepository.replace(document.settings.copy(onboardingCompleted = true))
                 appContainer.profileRepository.replace(document.profileState.profiles, document.profileState.selectedId)
-                DriveAssistService.start(this)
+                startDriveService()
                 Toast.makeText(this, "Configuration imported", Toast.LENGTH_SHORT).show()
             }.onFailure {
                 Toast.makeText(this, "Invalid configuration file: ${it.message}", Toast.LENGTH_LONG).show()
@@ -435,6 +444,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         val prefs = getSharedPreferences(CitsBridgeService.PREFS, MODE_PRIVATE)
         connectionMode = ConnectionMode.fromWireValue(prefs.getString(PREF_CONNECTION_MODE, null))
         txApproved = prefs.getBoolean(CitsBridgeService.PREF_TX_APPROVED, false)
+        txShakeEnabled = prefs.getBoolean(PREF_TX_SHAKE_ENABLED, false)
         debugMenuEnabled = prefs.getBoolean(CitsBridgeService.PREF_DEBUG_MENU_ENABLED, false)
         themeMode = ThemeMode.fromPreference(prefs.getString(PREF_THEME_MODE, null))
         displayAlwaysOnEnabled = prefs.getBoolean(PREF_DISPLAY_ALWAYS_ON, false)
@@ -510,6 +520,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
         })
+        flashingState = flashingState.copy(
+            lastFlashedTag = prefs.getString(PREF_LAST_FLASHED_TAG, null),
+            lastFlashedAtMs = prefs.getLong(PREF_LAST_FLASHED_AT_MS, 0L).takeIf { it > 0 },
+            lastFlashedDevice = prefs.getString(PREF_LAST_FLASHED_DEVICE, null),
+        )
         driveSettings = appContainer.settingsRepository.current()
         driveProfileState = appContainer.profileRepository.current()
         driveState = appContainer.driveEngine.current()
@@ -520,9 +535,14 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         checkForAppUpdate()
         refreshDevices()
         selectedDeviceName = selectedDeviceName ?: devices.firstOrNull()?.deviceName
+        if (intent?.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) {
+            // A receiver becoming visible must not reopen the flashing screen from the last task
+            // state. The driver/capture home is the useful landing page; flashing stays explicit.
+            requestedPage = AppPage.Home
+        }
         if (savedInstanceState == null) autoStartOnPlugIn(intent)
         if (driveSettings.onboardingCompleted && driveSettings.autoConnect) {
-            DriveAssistService.start(this)
+            startDriveService()
         }
         setContent {
             CitsTheme(themeMode = themeMode) {
@@ -654,6 +674,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     autoRecordFolderLabel = AutoRecording.folderLabel(autoRecordFolderUri),
                     onChooseAutoRecordFolder = ::chooseAutoRecordFolder,
                     txApprovalPromptState = txApprovalPromptState,
+                    txShakeEnabled = txShakeEnabled,
+                    onTxShakeEnabledChange = { enabled ->
+                        txShakeEnabled = enabled
+                        getSharedPreferences(CitsBridgeService.PREFS, MODE_PRIVATE).edit()
+                            .putBoolean(PREF_TX_SHAKE_ENABLED, enabled)
+                            .apply()
+                        if (enabled && !txApproved) startTxShakeDetection() else stopTxShakeDetection()
+                        if (!enabled) txApprovalPromptState = TxApprovalPromptState.Hidden
+                    },
+                    onOpenTxApproval = { txApprovalPromptState = TxApprovalPromptState.Ready },
                     onGrantTxApproval = ::grantTxApproval,
                     onDismissTxApproval = { txApprovalPromptState = TxApprovalPromptState.Hidden },
                     onFinishTxApproval = { txApprovalPromptState = TxApprovalPromptState.Hidden },
@@ -690,6 +720,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     driveHistory = driveHistory,
                     locationPermissionGranted = driveLocationPermissionGranted,
                     driveHandlers = buildDriveHandlers(),
+                    requestedPage = requestedPage,
+                    onRequestedPageHandled = { requestedPage = null },
                 )
             }
         }
@@ -734,18 +766,36 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         startActivity(Intent.createChooser(intent, "Export diagnostics"))
     }
 
+    private fun startDriveService() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            startDriveAfterNotificationPermission = true
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+        startDriveServiceNow()
+    }
+
+    private fun startDriveServiceNow() {
+        runCatching { DriveAssistService.start(this) }
+            .onFailure {
+                java.util.logging.Logger.getLogger("org.opentrafficmap.citstogo.DriveStart")
+                    .log(java.util.logging.Level.SEVERE, "Drive service start failed", it)
+                logLine = "Could not start drive service: ${it.message ?: it.javaClass.simpleName}"
+                Toast.makeText(this, logLine, Toast.LENGTH_LONG).show()
+            }
+    }
+
     private fun buildDriveHandlers(): DriveUiHandlers = DriveUiHandlers(
-        onStartService = {
-            requestNotificationPermission()
-            DriveAssistService.start(this)
-        },
+        onStartService = ::startDriveService,
         onStopService = { DriveAssistService.stop(this) },
         onReconnectService = { DriveAssistService.reconnect(this) },
         onUpdateSettings = { settings ->
             val previous = appContainer.settingsRepository.current()
             appContainer.settingsRepository.replace(settings)
             if (settings.simulationEnabled && !previous.simulationEnabled) {
-                DriveAssistService.start(this)
+                startDriveService()
             }
         },
         onUpdateProfile = { profile -> appContainer.profileRepository.update(profile) },
@@ -775,6 +825,15 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         },
     )
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) {
+            requestedPage = AppPage.Home
+            autoStartOnPlugIn(intent)
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         refreshDevices()
@@ -784,7 +843,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         // status the bridge answers with replaces whatever this screen remembered from the sleep.
         if (status.running) sendServiceIntent(CitsBridgeService.ACTION_RECONNECT)
         batteryOptimizationIgnored = isIgnoringBatteryOptimizations()
-        if (!txApproved) startTxShakeDetection()
+        if (!txApproved && txShakeEnabled) startTxShakeDetection()
         if (wantsIntersectionLocation) {
             startOrRequestIntersectionLocation()
         }
@@ -806,7 +865,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     }
 
     override fun onSensorChanged(event: SensorEvent) {
-        if (txApproved ||
+        if (!txShakeEnabled ||
+            txApproved ||
             txApprovalPromptState != TxApprovalPromptState.Hidden ||
             event.sensor.type != Sensor.TYPE_ACCELEROMETER
         ) return
@@ -1305,12 +1365,23 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 }
             }.onSuccess {
                 runOnUiThread {
+                    val flashedTag = release?.tag ?: flashingState.firmwareName ?: "custom firmware"
+                    val flashedAt = System.currentTimeMillis()
+                    val flashedDevice = flashingState.deviceName
+                    getSharedPreferences(CitsBridgeService.PREFS, MODE_PRIVATE).edit()
+                        .putString(PREF_LAST_FLASHED_TAG, flashedTag)
+                        .putLong(PREF_LAST_FLASHED_AT_MS, flashedAt)
+                        .putString(PREF_LAST_FLASHED_DEVICE, flashedDevice)
+                        .apply()
                     flashingState = flashingState.copy(
                         phase = FirmwareFlashingPhase.Complete,
                         message = "Firmware flashed and verified successfully. Restart the receiver from the Home page.",
                         progress = 1f,
+                        lastFlashedTag = flashedTag,
+                        lastFlashedAtMs = flashedAt,
+                        lastFlashedDevice = flashedDevice,
                     )
-                    logFlash(ActivityLevel.INFO, "Firmware flashed and verified successfully.")
+                    logFlash(ActivityLevel.INFO, "Firmware flashed and verified successfully: $flashedTag.")
                 }
             }.onFailure { error ->
                 runOnUiThread {
@@ -1578,7 +1649,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         if (status.running || status.camEnabled) {
             sendServiceIntent(CitsBridgeService.ACTION_REVOKE_TX_APPROVAL)
         }
-        startTxShakeDetection()
+        if (txShakeEnabled) startTxShakeDetection()
         logLine = "TX approval revoked"
     }
 
@@ -1898,6 +1969,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         private const val PREF_AUTO_CONNECT_ON_PLUGIN = "auto_connect_on_plugin"
         private const val PREF_AUTO_RECORD_ON_PLUGIN = "auto_record_on_plugin"
         private const val PREF_AUTO_RECORD_FOLDER = "auto_record_folder_tree_uri"
+        private const val PREF_LAST_FLASHED_TAG = "last_flashed_tag"
+        private const val PREF_LAST_FLASHED_AT_MS = "last_flashed_at_ms"
+        private const val PREF_LAST_FLASHED_DEVICE = "last_flashed_device"
+        private const val PREF_TX_SHAKE_ENABLED = "tx_shake_enabled"
         private const val PREF_VEHICLE_LENGTH_DM_PREFIX = "vehicle_length_dm_"
         private const val PREF_VEHICLE_WIDTH_DM_PREFIX = "vehicle_width_dm_"
         private const val PREF_VEHICLE_TRAILER_PREFIX = "vehicle_trailer_"

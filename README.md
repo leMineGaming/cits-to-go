@@ -92,6 +92,13 @@ preserved in [LICENSE](LICENSE) and in the in-app About page.
 - Deduplicated notifications with cooldowns; repeated 1 Hz DENMs do not spam the driver.
 - Optional tones per priority, Android audio focus, volume control, quiet mode and text-to-speech.
 
+### TX approval and settings
+
+- Shake-to-open TX approval is **off by default** and can be enabled/disabled in Settings.
+- When it is off, use the explicit **Open TX approval** button in Settings; driving vibration cannot
+  open the approval screen.
+- The TX approval screen itself still requires the regulation notice and the full red slider.
+
 ### Driver profiles and settings
 
 - Create, edit, duplicate, select and delete profiles (the selected and last profile are protected;
@@ -286,6 +293,11 @@ it again. The diagnostics view reports attempts, reconnects, bytes, frames and t
 There is no default hardware address. If none is configured, the dashboard says so and the service
 keeps running with no link.
 
+**USB ESP32-C5:** leave the receiver address and port untouched. The ESP32-C5 is a USB/BLE capture
+device, not a TCP server. Start it from **Capture**; its decoded packets and location are fed into the
+same driving engine, so the Drive dashboard and Android Auto work with USB hardware as well. A TCP
+address is only for a separate network C-ITS receiver.
+
 ---
 
 ## Android Auto setup
@@ -432,6 +444,9 @@ Never commit a keystore or passwords. `versionCode` defaults to the value in
   the intersection-level limit for GLOSA; the driver-profile cap remains the upper bound.
 - Position matching uses the phone GPS. Hardware-provided position is an interface-ready future
   extension, not yet wired to a specific receiver protocol.
+- The ESP32-C5 firmware does not currently report its build version. The flashing page shows the last
+  release written by this app, compares it with the installed app version and shows live CTG1
+  telemetry; chip-reported versioning needs a firmware protocol field.
 - Captured field-capture/tshark validation tests are skipped when the optional PCAP fixtures or
   Wireshark CLI are unavailable; they still run when present.
 - The app is intended for personal use initially. Public distribution requires host/category review,

@@ -88,6 +88,9 @@ fun SettingsPage(
     mapStationTimeoutSeconds: Int,
     mapHistoryDays: Int,
     txApproved: Boolean,
+    txShakeEnabled: Boolean = false,
+    onTxShakeEnabledChange: (Boolean) -> Unit = {},
+    onOpenTxApproval: () -> Unit = {},
     sremProfile: SremProfile,
     bridgeRunning: Boolean,
     bluetoothEnrollmentRunning: Boolean,
@@ -194,6 +197,9 @@ fun SettingsPage(
 
         TxApprovalCard(
             txApproved = txApproved,
+            txShakeEnabled = txShakeEnabled,
+            onTxShakeEnabledChange = onTxShakeEnabledChange,
+            onOpenTxApproval = onOpenTxApproval,
             onRevokeTxApproval = onRevokeTxApproval,
         )
 
@@ -1311,6 +1317,9 @@ private fun SettingToggleRow(
 @Composable
 private fun TxApprovalCard(
     txApproved: Boolean,
+    txShakeEnabled: Boolean,
+    onTxShakeEnabledChange: (Boolean) -> Unit,
+    onOpenTxApproval: () -> Unit,
     onRevokeTxApproval: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -1380,13 +1389,32 @@ private fun TxApprovalCard(
                 icon = Icons.Rounded.Info,
             )
 
+            SettingToggleRow(
+                title = "Shake to open TX approval",
+                description = "Off by default. When off, use the button below instead; driving vibration cannot open the approval screen.",
+                checked = txShakeEnabled,
+                onCheckedChange = onTxShakeEnabledChange,
+                tag = "tx_shake_toggle",
+            )
+
             Text(
-                "To unlock TX: shake this phone firmly anywhere in the app. On the TX approval " +
-                    "screen, confirm the regulation notice and pull the red handle fully to the " +
-                    "right. TX stays approved until you revoke it here.",
+                "On the TX approval screen, confirm the regulation notice and pull the red handle " +
+                    "fully to the right. TX stays approved until you revoke it here.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color(ContextCompat.getColor(context, R.color.on_surface_variant)),
             )
+
+            if (!txApproved) {
+                Button(
+                    onClick = onOpenTxApproval,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Text("Open TX approval")
+                }
+            }
 
             Button(
                 onClick = onRevokeTxApproval,

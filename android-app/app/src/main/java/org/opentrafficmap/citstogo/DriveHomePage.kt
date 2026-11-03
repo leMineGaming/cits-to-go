@@ -64,6 +64,7 @@ fun DriveHomePage(
     state: DriveSnapshot,
     profile: DriverProfile,
     locationPermissionGranted: Boolean,
+    captureRunning: Boolean,
     handlers: DriveUiHandlers,
     modifier: Modifier = Modifier,
 ) {
@@ -75,7 +76,7 @@ fun DriveHomePage(
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        DriveConnectionBanner(state, handlers)
+        DriveConnectionBanner(state, captureRunning, handlers)
         GlosaHero(state, profile, locationPermissionGranted)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             MetricTile(
@@ -112,7 +113,12 @@ fun DriveHomePage(
 }
 
 @Composable
-private fun DriveConnectionBanner(state: DriveSnapshot, handlers: DriveUiHandlers) {
+private fun DriveConnectionBanner(
+    state: DriveSnapshot,
+    captureRunning: Boolean,
+    handlers: DriveUiHandlers,
+) {
+    val usbCaptureMode = !state.settings.hasHardwareAddress && !state.simulated
     val statusColor = when {
         state.simulated -> MaterialTheme.colorScheme.tertiary
         state.connection.connected -> MaterialTheme.colorScheme.tertiary
@@ -126,6 +132,8 @@ private fun DriveConnectionBanner(state: DriveSnapshot, handlers: DriveUiHandler
             Column(Modifier.weight(1f)) {
                 Text(
                     when {
+                        usbCaptureMode && captureRunning -> "USB capture active"
+                        usbCaptureMode -> "USB capture stopped"
                         state.simulated -> stringResource(R.string.drive_status_simulation)
                         state.connection.connected -> stringResource(R.string.drive_status_connected)
                         state.connection.phase == ConnectionPhase.Connecting ->
@@ -138,6 +146,10 @@ private fun DriveConnectionBanner(state: DriveSnapshot, handlers: DriveUiHandler
                 )
                 Text(
                     when {
+                        usbCaptureMode && captureRunning ->
+                            "Receiving from the USB ESP32-C5; packets feed this dashboard."
+                        usbCaptureMode ->
+                            "No TCP receiver configured. Start Capture to use the USB ESP32-C5; its packets feed this dashboard."
                         state.simulated -> "Offline example data · never live traffic"
                         state.connection.connected -> state.connection.address
                         else -> state.connection.lastError ?: state.connection.address
@@ -148,7 +160,11 @@ private fun DriveConnectionBanner(state: DriveSnapshot, handlers: DriveUiHandler
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (state.connection.phase == ConnectionPhase.Stopped && !state.simulated) {
+            if (usbCaptureMode) {
+                OutlinedButton(onClick = { handlers.onOpenPage(AppPage.Capture) }) {
+                    Text("Open Capture")
+                }
+            } else if (state.connection.phase == ConnectionPhase.Stopped && !state.simulated) {
                 Button(onClick = handlers.onStartService) {
                     Icon(Icons.Rounded.PlayArrow, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
@@ -162,7 +178,7 @@ private fun DriveConnectionBanner(state: DriveSnapshot, handlers: DriveUiHandler
                 }
             }
         }
-        if (state.connection.phase != ConnectionPhase.Stopped) {
+        if (!usbCaptureMode && state.connection.phase != ConnectionPhase.Stopped) {
             TextButton(onClick = handlers.onReconnectService) {
                 Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))

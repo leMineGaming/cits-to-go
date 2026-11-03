@@ -71,7 +71,7 @@ class TxApprovalUiTest {
         compose.setContent { settingsPage(txApproved = true, onRevokeTxApproval = { revoked++ }) }
 
         compose.onNodeWithText("TX Transmission").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("shake this phone firmly", substring = true)
+        compose.onNodeWithText("Shake to open TX approval")
             .performScrollTo()
             .assertIsDisplayed()
         // onNodeWithText fails on duplicates, proving revoke moved out of the debug card.

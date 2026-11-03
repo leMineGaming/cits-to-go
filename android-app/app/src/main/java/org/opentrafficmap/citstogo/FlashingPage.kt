@@ -54,6 +54,7 @@ fun FlashingPage(
     state: FirmwareFlashingState,
     log: List<FirmwareFlashLogEntry>,
     bridgeRunning: Boolean,
+    firmwareStatistics: org.opentrafficmap.citstogo.protocol.FirmwareStatistics? = null,
     onRetryRelease: () -> Unit,
     onSelectRelease: (FirmwareRelease) -> Unit,
     onChooseCustomFirmware: () -> Unit,
@@ -101,6 +102,36 @@ fun FlashingPage(
             },
         )
         FlashingDetail("Device", state.deviceName ?: "Waiting for ESP32-C5…")
+        FlashingDetail("Last flashed", state.lastFlashedTag ?: "None recorded on this phone")
+        state.lastFlashedAtMs?.let { timestamp ->
+            FlashingDetail(
+                "Flashed at",
+                java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+                    .format(java.time.Instant.ofEpochMilli(timestamp).atZone(java.time.ZoneId.systemDefault())),
+            )
+        }
+        FlashingDetail(
+            "Firmware check",
+            when {
+                state.lastFlashedTag == null && !state.customFirmware ->
+                    "No flash recorded; reflash to update this phone’s record"
+                state.customFirmware -> "Custom firmware: compare the file you selected"
+                state.lastFlashedTag?.removePrefix("v") == state.appVersion ->
+                    "Matches app ${state.appVersion}"
+                else -> "Last app flash was ${state.lastFlashedTag}; app is ${state.appVersion} — reflash recommended"
+            },
+        )
+        FlashingDetail(
+            "Chip telemetry",
+            firmwareStatistics?.let {
+                "CTG1 statistics active · uptime ${it.uptimeMs / 1000}s"
+            } ?: "Not received yet; start capture with the ESP32-C5 connected",
+        )
+        Text(
+            "The ESP32-C5 firmware does not currently report its own build version. This check compares the release last written by this app with the installed app version.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Text(
             if (bridgeRunning && !state.busy && state.phase != FirmwareFlashingPhase.Error && state.phase != FirmwareFlashingPhase.Complete) {
                 "The receiver is running. It will be stopped automatically before flashing starts."

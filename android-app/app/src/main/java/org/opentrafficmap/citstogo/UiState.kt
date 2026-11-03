@@ -26,6 +26,10 @@ data class FirmwareFlashingState(
     val phase: FirmwareFlashingPhase = FirmwareFlashingPhase.LoadingRelease,
     val message: String = "Loading the list of firmware releases…",
     val progress: Float = 0f,
+    /** Release or custom file last written by this app, and when. */
+    val lastFlashedTag: String? = null,
+    val lastFlashedAtMs: Long? = null,
+    val lastFlashedDevice: String? = null,
 ) {
     val busy: Boolean get() = phase == FirmwareFlashingPhase.Downloading || phase == FirmwareFlashingPhase.Flashing
 

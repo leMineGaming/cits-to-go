@@ -27,7 +27,10 @@ import android.os.SystemClock
 import android.net.Uri
 import android.provider.DocumentsContract
 import org.opentrafficmap.citstogo.BuildConfig
+import org.opentrafficmap.citstogo.CitsApplication
 import org.opentrafficmap.citstogo.MainActivity
+import org.opentrafficmap.citstogo.drive.engine.DriveEngine
+import org.opentrafficmap.citstogo.drive.position.VehiclePosition
 import org.opentrafficmap.citstogo.cam.CamIdentity
 import org.opentrafficmap.citstogo.cam.CamInterval
 import org.opentrafficmap.citstogo.cam.CamPosition
@@ -69,6 +72,9 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.min
 
 class CitsBridgeService : Service() {
+    /** The same application-scoped engine used by the phone dashboard and Android Auto. */
+    private val driveEngine: DriveEngine
+        get() = (application as CitsApplication).container.driveEngine
     private val logger = java.util.logging.Logger.getLogger("org.opentrafficmap.citstogo.Bridge")
     private val handler = Handler(Looper.getMainLooper())
     private val pcapLock = Any()
@@ -218,6 +224,18 @@ class CitsBridgeService : Service() {
         ) {
             lastLocation = location
         }
+        // The USB/BLE capture path feeds the same driving engine, so the Drive dashboard and
+        // Android Auto work without a separate TCP link.
+        driveEngine.onPosition(
+            VehiclePosition(
+                latitudeE7 = (location.latitude * 10_000_000.0).toInt(),
+                longitudeE7 = (location.longitude * 10_000_000.0).toInt(),
+                accuracyM = location.takeIf { it.hasAccuracy() }?.accuracy,
+                speedMetersPerSecond = location.takeIf { it.hasSpeed() && it.speed >= 0f }?.speed,
+                headingDegrees = location.takeIf { it.hasBearing() }?.bearing,
+                timestampMs = location.time.takeIf { it > 0 } ?: System.currentTimeMillis(),
+            ),
+        )
     }
 
     private val camBroadcaster = object : Runnable {
@@ -921,6 +939,7 @@ class CitsBridgeService : Service() {
         }.joinToString(" • ")
         if (publishToMqtt) queueMqttPacket(packet.payload)
         writePcap(packet)
+        itsPacket?.let { driveEngine.onFrame(packet.payload) }
         updateIntersection(packet.payload)
         updateSsem(packet.payload)
         itsPacket?.let { updateLiveMap(it, packet.wallClockMs) }

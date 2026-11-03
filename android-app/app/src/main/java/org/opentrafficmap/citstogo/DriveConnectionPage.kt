@@ -181,7 +181,7 @@ fun DriveConnectionPage(
                 )
             }
             Text(
-                "The link accepts C-ITS hardware that streams raw 802.11/GeoNetworking frames. Choose the framing your receiver uses; the default is a 4-byte big-endian length prefix.",
+                "This address is for a network C-ITS receiver that streams raw 802.11/GeoNetworking frames over TCP. The USB ESP32-C5 does not use a TCP address: leave this blank and start the capture from the Capture page; its packets are also shown on the Drive dashboard.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
